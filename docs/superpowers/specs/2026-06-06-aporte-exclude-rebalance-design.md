@@ -41,7 +41,7 @@ Approach B enhanced — proportional redistribution that tries to respect target
 3. Mark allocation as `excluded = true`
 4. Compute freed amount = excluded allocation's `suggested_value_brl`
 5. Compute adjusted total = original `aporte_value_brl` − freed amount
-6. For each remaining asset class with eligible allocations:
+6. For each remaining asset class with eligible allocations (classes with no eligible allocations receive $0 from freed amount):
    - Compute `gap = max(0, target_value(adjusted_total) - current_value)`
 7. Distribute freed amount proportionally to gaps (same logic as Stage 1 of `compute_suggestions`)
 8. Within each class receiving a share, split by existing strength/value weights (same logic as Stage 2)
@@ -102,7 +102,7 @@ File: `frontend/src/routes/(app)/aporte/+page.svelte`
 2. **Excluded row styling**
    - `opacity-40` applied to the row
    - Ticker gets strikethrough text
-   - X button disappears or becomes disabled checkmark
+   - X button becomes a disabled checkmark icon
    - "Aportar" button disabled
 
 3. **Summary bar update**
