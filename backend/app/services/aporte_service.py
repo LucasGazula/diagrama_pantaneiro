@@ -106,3 +106,79 @@ async def apply_allocation(
     alloc.applied_value_brl = value
     alloc.applied_quantity = quantity
     return alloc
+
+
+async def exclude_allocation(
+    session: AsyncSession,
+    event_id: uuid.UUID,
+    allocation_id: uuid.UUID,
+) -> AporteEvent:
+    """Mark an allocation excluded and rebalance remaining allocations.
+
+    Loads the portfolio, runs compute_suggestions with the excluded asset
+    IDs filtered out, then persists updated suggestions to DB.
+    """
+    # Load event
+    event = (
+        await session.execute(
+            select(AporteEvent).where(AporteEvent.id == event_id)
+        )
+    ).scalar_one_or_none()
+    if event is None:
+        raise ValueError("event not found")
+
+    # Load the target allocation
+    alloc = (
+        await session.execute(
+            select(AporteAllocation).where(
+                AporteAllocation.id == allocation_id,
+                AporteAllocation.aporte_event_id == event.id,
+            )
+        )
+    ).scalar_one_or_none()
+    if alloc is None:
+        raise ValueError("allocation not found")
+    if alloc.applied:
+        raise ValueError("allocation already applied")
+    if alloc.excluded:
+        return event  # idempotent
+
+    # Mark excluded
+    alloc.excluded = True
+
+    # Collect all currently-excluded asset IDs (position_id is stored as UUID)
+    all_allocs = (
+        await session.execute(
+            select(AporteAllocation).where(
+                AporteAllocation.aporte_event_id == event.id
+            )
+        )
+    ).scalars().all()
+    exclude_ids: set[str] = {
+        str(a.position_id) for a in all_allocs
+        if a.excluded and a.position_id is not None
+    }
+
+    # Reload portfolio and recompute
+    portfolio = await load_portfolio(session, event.user_id, event.portfolio_id)
+    suggestions = compute_suggestions(portfolio, event.aporte_value_brl, exclude_ids)
+
+    # Map suggestions by position_id for quick lookup
+    suggestion_map = {s.asset_id: s for s in suggestions}
+
+    # Update existing allocations
+    for existing in all_allocs:
+        if existing.excluded:
+            continue
+        if existing.position_id and str(existing.position_id) in suggestion_map:
+            s = suggestion_map[str(existing.position_id)]
+            existing.suggested_value_brl = s.suggestion_value
+            existing.suggested_quantity = s.suggestion_quantity
+        else:
+            # Asset no longer in suggestions (shouldn't happen, but defensive)
+            existing.suggested_value_brl = 0
+            existing.suggested_quantity = 0
+
+    await session.flush()
+    await session.refresh(event, ["allocations"])
+    return event
