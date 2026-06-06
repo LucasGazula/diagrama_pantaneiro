@@ -52,18 +52,23 @@ def _is_allocatable(a: Asset) -> bool:
     return a.strength > 0
 
 
-def compute_suggestions(portfolio: Portfolio, aporte: float) -> list[Suggestion]:
+def compute_suggestions(
+    portfolio: Portfolio,
+    aporte: float,
+    exclude_ids: set[str] | None = None,
+) -> list[Suggestion]:
     if aporte <= 0:
         return []
 
+    exclude = exclude_ids or set()
     portfolio_total = sum(position_value(a) for a in portfolio.assets)
     new_total = portfolio_total + aporte
 
-    class_share = _stage_one_inter_class(portfolio, new_total, aporte)
+    class_share = _stage_one_inter_class(portfolio, new_total, aporte, exclude)
     if not class_share:
         return []
 
-    raw_allocation = _stage_two_intra_class(class_share, portfolio.assets)
+    raw_allocation = _stage_two_intra_class(class_share, portfolio.assets, exclude)
     suggestions = _stage_three_quantize(raw_allocation, portfolio.assets, aporte, new_total)
     return _absorb_residual(suggestions, portfolio.assets, aporte, new_total)
 
@@ -112,6 +117,7 @@ def _stage_one_inter_class(
     portfolio: Portfolio,
     new_total: float,
     aporte: float,
+    exclude_ids: set[str] | None = None,
 ) -> dict[ClassType, float]:
     """Inter-class split.
 
@@ -124,7 +130,8 @@ def _stage_one_inter_class(
       * ``total_gap == 0``       — every class at/above target; split the
         aporte by target pct.
     """
-    assets = portfolio.assets
+    exclude = exclude_ids or set()
+    assets = [a for a in portfolio.assets if a.id not in exclude]
     targets = portfolio.targets
 
     eligible_classes: set[ClassType] = {a.type for a in assets if _is_allocatable(a)}
@@ -164,6 +171,7 @@ def _stage_one_inter_class(
 def _stage_two_intra_class(
     class_share: dict[ClassType, float],
     all_assets: list[Asset],
+    exclude_ids: set[str] | None = None,
 ) -> dict[str, float]:
     """Intra-class split.
 
@@ -175,10 +183,12 @@ def _stage_two_intra_class(
          at the default 0).
       3. Else (all zero, all empty): equal weight.
     """
+    exclude = exclude_ids or set()
+    filtered_assets = [a for a in all_assets if a.id not in exclude]
     out: dict[str, float] = {}
 
     for cls, share in class_share.items():
-        allocatable = [a for a in all_assets if a.type == cls and _is_allocatable(a)]
+        allocatable = [a for a in filtered_assets if a.type == cls and _is_allocatable(a)]
         if not allocatable:
             continue
 
