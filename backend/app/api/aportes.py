@@ -20,6 +20,7 @@ from app.schemas.aporte import (
     ApplyRequest,
 )
 from app.services.aporte_service import apply_allocation, create_aporte_event
+from app.services.refresh_prices import refresh_portfolio_prices
 
 router = APIRouter(prefix="/api/aportes", tags=["aportes"])
 
@@ -49,6 +50,7 @@ async def create_aporte(
     portfolio: Portfolio = Depends(get_active_portfolio),
     session: AsyncSession = Depends(get_async_session),
 ) -> AporteEventOut:
+    await refresh_portfolio_prices(session, portfolio.id)
     event = await create_aporte_event(session, user.id, portfolio.id, body.value)
     await session.commit()
     fresh = await _get_portfolio_event(session, event.id, portfolio.id)
