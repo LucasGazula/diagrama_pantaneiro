@@ -79,4 +79,7 @@ class CoinGeckoAdapter:
         entry = data.get(coin_id)
         if not entry or "brl" not in entry:
             raise AdapterNotFoundError(f"CoinGecko: no BRL price for {coin_id}")
-        return PriceQuote.now(external_id=external_id, price_brl=float(entry["brl"]))
+        price = float(entry["brl"])
+        if price <= 0:
+            raise AdapterNotFoundError(f"CoinGecko: zero/negative price for {coin_id}")
+        return PriceQuote.now(external_id=external_id, price_brl=price)
