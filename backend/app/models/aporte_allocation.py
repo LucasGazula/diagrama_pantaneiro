@@ -38,4 +38,6 @@ class AporteAllocation(Base):
     applied_value_brl: Mapped[float | None] = mapped_column(Float, nullable=True)
     applied_quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
 
+    # Exclusion (user chose not to allocate to this asset)
+    excluded: Mapped[bool] = mapped_column(Boolean, default=False)
     event: Mapped["AporteEvent"] = relationship(back_populates="allocations")
