@@ -65,7 +65,7 @@ def compute_suggestions(
     portfolio_total = sum(position_value(a) for a in remaining_assets)
     new_total = portfolio_total + aporte
 
-    class_share = _stage_one_inter_class(portfolio, new_total, aporte, exclude)
+    class_share = _stage_one_inter_class(portfolio, portfolio_total, aporte, exclude)
     if not class_share:
         return []
 
@@ -116,7 +116,7 @@ def _absorb_residual(
 
 def _stage_one_inter_class(
     portfolio: Portfolio,
-    new_total: float,
+    portfolio_total: float,
     aporte: float,
     exclude_ids: set[str] | None = None,
 ) -> dict[ClassType, float]:
@@ -137,6 +137,8 @@ def _stage_one_inter_class(
 
     eligible_classes: set[ClassType] = {a.type for a in assets if _is_allocatable(a)}
 
+    # Compute gaps against portfolio_total (without aporte), NOT new_total.
+    # This ensures remaining assets can absorb the full aporte.
     gaps: dict[ClassType, float] = {}
     eligible_targets: dict[ClassType, float] = {}
     for cls in eligible_classes:
@@ -144,9 +146,8 @@ def _stage_one_inter_class(
         if pct <= 0:
             continue
         eligible_targets[cls] = pct
-        target_value = (pct / 100.0) * new_total
         current_value = sum(position_value(a) for a in assets if a.type == cls)
-        gap = max(0.0, target_value - current_value)
+        gap = max(0.0, (pct / 100.0) * portfolio_total - current_value)
         if gap > 0:
             gaps[cls] = gap
 
@@ -157,11 +158,14 @@ def _stage_one_inter_class(
         return {}
 
     if total_gap == 0:
+        # All classes at/above target; split aporte by target pct.
         return {cls: aporte * (pct / total_pct) for cls, pct in eligible_targets.items()}
 
     if total_gap >= aporte:
+        # Enough gap to absorb entire aporte proportionally.
         return {cls: aporte * (g / total_gap) for cls, g in gaps.items()}
 
+    # Close every gap, distribute excess by target pct.
     shares: dict[ClassType, float] = dict(gaps)
     excess = aporte - total_gap
     for cls, pct in eligible_targets.items():
