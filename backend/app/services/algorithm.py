@@ -61,7 +61,8 @@ def compute_suggestions(
         return []
 
     exclude = exclude_ids or set()
-    portfolio_total = sum(position_value(a) for a in portfolio.assets)
+    remaining_assets = [a for a in portfolio.assets if a.id not in exclude]
+    portfolio_total = sum(position_value(a) for a in remaining_assets)
     new_total = portfolio_total + aporte
 
     class_share = _stage_one_inter_class(portfolio, new_total, aporte, exclude)

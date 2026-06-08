@@ -100,3 +100,45 @@ class TestExcludeBasic:
         assert len(suggestions) == 1
         assert suggestions[0].asset_id == "a3"
         assert suggestions[0].suggestion_value > 490
+
+
+class TestExcludeRedistribution:
+    """Verify excluded value redistributes fully to remaining assets."""
+
+    def test_exclude_two_of_three_absorbs_full_aporte(self):
+        """User scenario: 5000 aporte, exclude 2 positions, remaining gets all."""
+        assets = [
+            _make_asset("a1", "criptomoedas", 0.5, strength=0, price=500),
+            _make_asset("a2", "acoes_nacionais", 10, strength=1, price=100),
+            _make_asset("a3", "rendafixa", 1000, strength=0, price=None),
+        ]
+        targets = {"criptomoedas": 30, "acoes_nacionais": 50, "rendafixa": 20}
+        portfolio = _make_portfolio(assets, targets)
+
+        suggestions = compute_suggestions(portfolio, 5000, exclude_ids={"a1", "a2"})
+        total = sum(s.suggestion_value for s in suggestions)
+        assert total > 4970, f"Total {total} too low, {5000 - total:.2f} leaked"
+
+    def test_exclude_preserves_full_aporte_multiple_exclusions(self):
+        """Exclude 3 of 5 positions: remaining 2 absorb full aporte."""
+        assets = [
+            _make_asset("a1", "criptomoedas", 0.5, strength=0, price=500),
+            _make_asset("a2", "acoes_nacionais", 10, strength=1, price=100),
+            _make_asset("a3", "rendafixa", 1000, strength=0, price=None),
+            _make_asset("a4", "acoes_internacionais", 5, strength=1, price=200),
+            _make_asset("a5", "reits", 3, strength=1, price=150),
+        ]
+        targets = {
+            "criptomoedas": 20,
+            "acoes_nacionais": 30,
+            "rendafixa": 10,
+            "acoes_internacionais": 25,
+            "reits": 15,
+        }
+        portfolio = _make_portfolio(assets, targets)
+
+        suggestions = compute_suggestions(portfolio, 5000, exclude_ids={"a1", "a3", "a5"})
+        total = sum(s.suggestion_value for s in suggestions)
+        ids = {s.asset_id for s in suggestions}
+        assert "a1" not in ids and "a3" not in ids and "a5" not in ids
+        assert total > 4970, f"Total {total} too low, {5000 - total:.2f} leaked"
