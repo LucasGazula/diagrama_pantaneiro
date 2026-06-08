@@ -12,6 +12,13 @@ from sqlalchemy.pool import StaticPool
 from app.core.db import Base
 # Import models so their tables are registered on Base.metadata before create_all.
 from app.models import user as _user  # noqa: F401
+from app.models import aporte_allocation as _aporte_allocation  # noqa: F401
+from app.models import aporte_event as _aporte_event  # noqa: F401
+from app.models import diagram_question as _diagram_question  # noqa: F401
+from app.models import investment_target as _investment_target  # noqa: F401
+from app.models import portfolio as _portfolio  # noqa: F401
+from app.models import position as _position  # noqa: F401
+from app.models import target_preset as _target_preset  # noqa: F401
 
 
 @pytest_asyncio.fixture
