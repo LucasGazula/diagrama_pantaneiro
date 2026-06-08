@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { createAporte, applyAllocation } from "$lib/api/aportes";
+  import { createAporte, applyAllocation, excludeAllocation } from "$lib/api/aportes";
   import { listPositions } from "$lib/api/positions";
   import { CLASS_LABELS, CLASS_ORDER } from "$lib/classLabels";
   import { privacyStore } from "$lib/stores/privacy";
@@ -32,6 +32,7 @@
   let positions = $state<PositionOut[]>([]);
   let calculating = $state(false);
   let applyingId = $state<string | null>(null);
+  let excludingId = $state<string | null>(null);
   let error = $state<string | null>(null);
 
   onMount(async () => {
@@ -86,8 +87,21 @@
     }
   }
 
+
+  async function handleExclude(allocationId: string) {
+    if (!event) return;
+    excludingId = allocationId;
+    error = null;
+    try {
+      event = await excludeAllocation(event.id, allocationId);
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    } finally {
+      excludingId = null;
+    }
+  }
   let totalSuggested = $derived(
-    event ? event.allocations.reduce((s, a) => s + a.suggestedValueBrl, 0) : 0,
+    event ? event.allocations.filter((a) => !a.excluded).reduce((s, a) => s + a.suggestedValueBrl, 0) : 0,
   );
   let totalApplied = $derived(
     event
@@ -113,6 +127,7 @@
     totalAfterPct: number | null;
     applied: boolean;
     appliedValueBrl: number | null;
+    excluded: boolean;
   };
 
   let rows = $derived<EnrichedRow[]>(
@@ -139,9 +154,10 @@
               totalAfterPct,
               applied: a.applied,
               appliedValueBrl: a.appliedValueBrl,
+              excluded: a.excluded,
             };
           })
-          .sort((a, b) => b.suggestedValueBrl - a.suggestedValueBrl)
+          .sort((a, b) => (a.excluded === b.excluded ? b.suggestedValueBrl - a.suggestedValueBrl : a.excluded ? 1 : -1))
       : [],
   );
 
@@ -154,6 +170,7 @@
     for (const c of CLASS_ORDER) out[c] = 0;
     if (event) {
       for (const a of event.allocations) {
+        if (a.excluded) continue;
         out[a.assetTypeSnapshot] = (out[a.assetTypeSnapshot] ?? 0) + a.suggestedValueBrl;
       }
     }
@@ -239,6 +256,13 @@
           <p class="text-lg font-bold text-emerald-700">{fmtBRL(totalApplied)}</p>
         </div>
       {/if}
+      {#if event.aporteValueBrl - totalSuggested > 0.01}
+        {@const freed = event.aporteValueBrl - totalSuggested}
+        <div>
+          <span class="text-xs uppercase tracking-wide text-slate-500">Liberado</span>
+          <p class="text-lg font-bold text-amber-600">{fmtBRL(freed)}</p>
+        </div>
+      {/if}
     </div>
 
     <!-- Distribution donut + legend -->
@@ -312,11 +336,12 @@
             <th class="px-3 py-2 text-right">Sugest. ($)</th>
             <th class="px-3 py-2 text-right">Sugest. (un)</th>
             <th class="px-3 py-2 text-right">Aportar!</th>
+            <th class="w-10"></th>
           </tr>
         </thead>
         <tbody>
           {#each rows as r (r.id)}
-            <tr class="border-b border-slate-100 last:border-0" class:opacity-60={r.applied}>
+            <tr class="border-b border-slate-100 last:border-0" class:opacity-60={r.applied} class:opacity-40={r.excluded}>
               <td class="px-3 py-2">
                 <span
                   class="inline-block px-2 py-0.5 text-[11px] font-semibold"
@@ -325,7 +350,7 @@
                   {CLASS_LABELS[r.assetType] ?? r.assetType}
                 </span>
               </td>
-              <td class="px-3 py-2 font-medium">{r.name}</td>
+              <td class="px-3 py-2 font-medium" class:line-through={r.excluded}>{r.name}</td>
               <td class="px-3 py-2 text-right tabular-nums text-slate-600">
                 {r.currentValueBrl !== null ? fmtBRL(r.currentValueBrl) : "—"}
               </td>
@@ -362,6 +387,20 @@
                     class="rounded bg-slate-900 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
                   >
                     {applyingId === r.id ? "Aportando…" : "$ Aportar"}
+                  </button>
+                {/if}
+              </td>
+              <td class="px-3 py-2 text-right">
+                {#if r.applied || r.excluded}
+                  <!-- no action -->
+                {:else}
+                  <button
+                    onclick={() => handleExclude(r.id)}
+                    disabled={excludingId !== null}
+                    title="Excluir e redistribuir"
+                    class="rounded px-2 py-1 text-xs text-red-500 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
+                  >
+                    ✕
                   </button>
                 {/if}
               </td>
