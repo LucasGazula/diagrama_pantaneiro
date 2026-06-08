@@ -5,6 +5,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.api.auth import current_active_user
 from app.api.deps import get_active_portfolio
@@ -31,7 +32,9 @@ async def _get_portfolio_event(
 ) -> AporteEvent:
     event = (
         await session.execute(
-            select(AporteEvent).where(
+            select(AporteEvent)
+            .options(selectinload(AporteEvent.allocations))
+            .where(
                 AporteEvent.id == event_id,
                 AporteEvent.portfolio_id == portfolio_id,
             )
@@ -138,5 +141,5 @@ async def exclude(
         )
         raise HTTPException(status_code=code, detail=detail)
     await session.commit()
-    fresh = await _get_portfolio_event(session, event.id, portfolio.id)
-    return AporteEventOut.model_validate(fresh)
+    await session.refresh(updated, ["allocations"])
+    return AporteEventOut.model_validate(updated)
