@@ -45,6 +45,7 @@ export interface AporteAllocationOut {
   appliedAt: string | null;
   appliedValueBrl: number | null;
   appliedQuantity: number | null;
+  excluded: boolean;
 }
 
 export interface AporteEventOut {

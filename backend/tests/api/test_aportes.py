@@ -139,3 +139,93 @@ async def test_apply_cannot_cross_user_boundary(client: AsyncClient) -> None:
         headers=headers_b,
     )
     assert r.status_code == 404
+
+
+async def test_exclude_marks_excluded_and_rebalances(client: AsyncClient) -> None:
+    token = await _register_login_seed(client, "ex1@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    created = await client.post("/api/aportes", json={"value": 500}, headers=headers)
+    event = created.json()
+    alloc = event["allocations"][0]
+
+    r = await client.post(
+        f"/api/aportes/{event['id']}/exclude",
+        json={"allocation_id": alloc["id"]},
+        headers=headers,
+    )
+    assert r.status_code == 200
+    body = r.json()
+    excluded_allocs = [a for a in body["allocations"] if a["excluded"]]
+    non_excluded = [a for a in body["allocations"] if not a["excluded"]]
+    assert len(excluded_allocs) == 1
+    assert excluded_allocs[0]["id"] == alloc["id"]
+    assert excluded_allocs[0]["suggestedValueBrl"] == 0
+    # Remaining allocations have redistributed values
+    total_remaining = sum(a["suggestedValueBrl"] for a in non_excluded)
+    assert total_remaining > 490
+
+
+async def test_exclude_already_applied_returns_400(client: AsyncClient) -> None:
+    token = await _register_login_seed(client, "ex2@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    created = await client.post("/api/aportes", json={"value": 500}, headers=headers)
+    event = created.json()
+    alloc = event["allocations"][0]
+
+    # Apply first
+    await client.post(
+        f"/api/aportes/{event['id']}/allocations/{alloc['id']}/apply",
+        json={},
+        headers=headers,
+    )
+
+    # Then try to exclude
+    r = await client.post(
+        f"/api/aportes/{event['id']}/exclude",
+        json={"allocation_id": alloc["id"]},
+        headers=headers,
+    )
+    assert r.status_code == 400
+
+
+async def test_exclude_nonexistent_allocation_returns_404(client: AsyncClient) -> None:
+    token = await _register_login_seed(client, "ex3@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    created = await client.post("/api/aportes", json={"value": 500}, headers=headers)
+    event = created.json()
+
+    r = await client.post(
+        f"/api/aportes/{event['id']}/exclude",
+        json={"allocation_id": "00000000-0000-0000-0000-000000000000"},
+        headers=headers,
+    )
+    assert r.status_code == 404
+
+
+async def test_exclude_requires_auth(client: AsyncClient) -> None:
+    r = await client.post(
+        "/api/aportes/00000000-0000-0000-0000-000000000000/exclude",
+        json={"allocation_id": "00000000-0000-0000-0000-000000000000"},
+    )
+    assert r.status_code == 401
+
+
+async def test_exclude_cross_user_boundary_returns_404(client: AsyncClient) -> None:
+    """User A creates an aporte; user B cannot exclude its allocations."""
+    token_a = await _register_login_seed(client, "owner-ex@example.com")
+    headers_a = {"Authorization": f"Bearer {token_a}"}
+    created = await client.post("/api/aportes", json={"value": 500}, headers=headers_a)
+    event = created.json()
+    alloc = event["allocations"][0]
+
+    token_b = await _register_login_seed(client, "intruder-ex@example.com")
+    headers_b = {"Authorization": f"Bearer {token_b}"}
+    r = await client.post(
+        f"/api/aportes/{event['id']}/exclude",
+        json={"allocation_id": alloc["id"]},
+        headers=headers_b,
+    )
+    assert r.status_code == 404

@@ -145,6 +145,8 @@ async def exclude_allocation(
 
     # Mark excluded
     alloc.excluded = True
+    alloc.suggested_value_brl = 0
+    alloc.suggested_quantity = 0
 
     # Collect all currently-excluded asset IDs (position_id is stored as UUID)
     all_allocs = (

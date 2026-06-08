@@ -21,3 +21,9 @@ export const applyAllocation = (
     `/aportes/${eventId}/allocations/${allocationId}/apply`,
     { method: "POST", body: JSON.stringify(body) },
   );
+
+export const excludeAllocation = (eventId: string, allocationId: string) =>
+  apiRequest<AporteEventOut>(`/aportes/${eventId}/exclude`, {
+    method: "POST",
+    body: JSON.stringify({ allocation_id: allocationId }),
+  });
