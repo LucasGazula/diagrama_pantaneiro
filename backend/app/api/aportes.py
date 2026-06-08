@@ -18,8 +18,9 @@ from app.schemas.aporte import (
     AporteCreate,
     AporteEventOut,
     ApplyRequest,
+    ExcludeRequest,
 )
-from app.services.aporte_service import apply_allocation, create_aporte_event
+from app.services.aporte_service import apply_allocation, create_aporte_event, exclude_allocation
 from app.services.refresh_prices import refresh_portfolio_prices
 
 router = APIRouter(prefix="/api/aportes", tags=["aportes"])
@@ -115,3 +116,27 @@ async def apply(
     await session.commit()
     await session.refresh(updated)
     return AporteAllocationOut.model_validate(updated)
+
+
+@router.post("/{event_id}/exclude", response_model=AporteEventOut)
+async def exclude(
+    event_id: uuid.UUID,
+    body: ExcludeRequest,
+    user: User = Depends(current_active_user),
+    portfolio: Portfolio = Depends(get_active_portfolio),
+    session: AsyncSession = Depends(get_async_session),
+) -> AporteEventOut:
+    event = await _get_portfolio_event(session, event_id, portfolio.id)
+    try:
+        updated = await exclude_allocation(session, event.id, body.allocation_id)
+    except ValueError as exc:
+        detail = str(exc)
+        code = (
+            status.HTTP_400_BAD_REQUEST
+            if "already applied" in detail
+            else status.HTTP_404_NOT_FOUND
+        )
+        raise HTTPException(status_code=code, detail=detail)
+    await session.commit()
+    fresh = await _get_portfolio_event(session, event.id, portfolio.id)
+    return AporteEventOut.model_validate(fresh)
