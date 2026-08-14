@@ -13,6 +13,7 @@
   let error = $state<string | null>(null);
 
   onMount(async () => {
+    if (!eventId) return;
     try {
       event = await getAporte(eventId);
     } catch (e) {

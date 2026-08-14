@@ -11,7 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.aporte_allocation import AporteAllocation
 from app.models.portfolio import Portfolio as PortfolioModel
 from app.models.position import Position
-from app.services.aporte_service import apply_allocation, create_aporte_event
+from app.services.aporte_service import (
+    apply_allocation,
+    create_aporte_event,
+    exclude_allocation,
+)
 from app.services.import_auvp import import_auvp_user_doc
 
 FIXTURE = Path(__file__).resolve().parent.parent / "fixtures" / "auth_me.json"
@@ -174,3 +178,36 @@ async def test_apply_priced_rf_adds_units_not_brl(session: AsyncSession) -> None
     await session.refresh(rf)
     # amount (units) grew by suggested_quantity (units), NOT by value (BRL)
     assert abs(rf.amount - (amount_before + priced_alloc.suggested_quantity)) < 1e-4
+
+
+async def test_exclude_allocation_rebalances_only_among_remaining_suggestions(
+    session: AsyncSession,
+) -> None:
+    user_id, portfolio_id = await _seeded_user(session)
+
+    # 1. Create an aporte event with 500 BRL
+    event = await create_aporte_event(session, user_id, portfolio_id, 500)
+    await session.commit()
+
+    # Verify we have suggestions
+    assert len(event.allocations) == 3
+    original_ids = {str(a.position_id) for a in event.allocations}
+
+    # 2. Exclude one allocation
+    alloc_to_exclude = event.allocations[0]
+    excluded_id = str(alloc_to_exclude.position_id)
+
+    updated_event = await exclude_allocation(session, event.id, alloc_to_exclude.id)
+    await session.commit()
+
+    # 3. Verify that the excluded allocation is zeroed out and marked excluded
+    for a in updated_event.allocations:
+        if str(a.position_id) == excluded_id:
+            assert a.excluded is True
+            assert a.suggested_value_brl == 0
+        else:
+            # 4. Verify that remaining suggestions only include assets from the original set
+            assert a.excluded is False
+            assert str(a.position_id) in original_ids
+            # They should have absorbed the value
+            assert a.suggested_value_brl > 0

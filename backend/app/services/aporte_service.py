@@ -148,7 +148,7 @@ async def exclude_allocation(
     alloc.suggested_value_brl = 0
     alloc.suggested_quantity = 0
 
-    # Collect all currently-excluded asset IDs (position_id is stored as UUID)
+    # Collect all allocations for the event
     all_allocs = (
         await session.execute(
             select(AporteAllocation).where(
@@ -156,17 +156,29 @@ async def exclude_allocation(
             )
         )
     ).scalars().all()
-    exclude_ids: set[str] = {
+
+    # Eligible assets are those in the original suggestions that are NOT excluded
+    eligible_ids = {
         str(a.position_id) for a in all_allocs
-        if a.excluded and a.position_id is not None
+        if not a.excluded and a.position_id is not None
     }
 
-    # Reload portfolio and recompute
+    # Reload portfolio
     portfolio = await load_portfolio(session, event.user_id, event.portfolio_id)
+
+    # Exclude any asset from the portfolio that is not in the eligible set
+    exclude_ids = {
+        a.id for a in portfolio.assets
+        if a.id not in eligible_ids
+    }
+
     suggestions = compute_suggestions(portfolio, event.aporte_value_brl, exclude_ids)
 
     # Map suggestions by position_id for quick lookup
     suggestion_map = {s.asset_id: s for s in suggestions}
+    existing_by_pos_id = {
+        str(a.position_id): a for a in all_allocs if a.position_id is not None
+    }
 
     # Update existing allocations
     for existing in all_allocs:
@@ -180,6 +192,21 @@ async def exclude_allocation(
             # Asset no longer in suggestions (shouldn't happen, but defensive)
             existing.suggested_value_brl = 0
             existing.suggested_quantity = 0
+
+    # Add new allocations if any fallback asset was pulled in
+    for s in suggestions:
+        if s.asset_id not in existing_by_pos_id:
+            session.add(
+                AporteAllocation(
+                    aporte_event_id=event.id,
+                    position_id=uuid.UUID(s.asset_id),
+                    position_name_snapshot=s.asset_name,
+                    asset_type_snapshot=s.asset_type,
+                    price_at_aporte_brl=s.current_price,
+                    suggested_value_brl=s.suggestion_value,
+                    suggested_quantity=s.suggestion_quantity,
+                )
+            )
 
     await session.flush()
     await session.refresh(event, ["allocations"])

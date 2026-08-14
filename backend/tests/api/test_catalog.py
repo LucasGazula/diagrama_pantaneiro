@@ -6,6 +6,7 @@ from httpx import AsyncClient, Response
 
 from app.market_data.brapi import _AVAILABLE_URL
 from app.market_data.coingecko import _SEARCH_ENDPOINT
+from app.market_data.yfinance_adapter import _SEARCH_URL
 
 
 async def _register_and_login(client: AsyncClient, email: str) -> str:
@@ -74,12 +75,45 @@ async def test_search_coingecko_crypto(client: AsyncClient) -> None:
     assert body[0]["label"] == "Bitcoin"
 
 
-async def test_search_unsupported_type_returns_empty(client: AsyncClient) -> None:
+@respx.mock
+async def test_search_yfinance_us_stocks_and_reits(client: AsyncClient) -> None:
+    respx.get(_SEARCH_URL).mock(
+        return_value=Response(
+            200,
+            json={
+                "quotes": [
+                    {"symbol": "AAPL", "shortname": "Apple Inc.", "exchDisp": "NASDAQ", "quoteType": "EQUITY"},
+                    {"symbol": "AAPW", "shortname": "Roundhill ETF", "exchDisp": "BATS", "quoteType": "ETF"},
+                ]
+            },
+        )
+    )
     token = await _register_and_login(client, "cat-us@example.com")
-    # yfinance / US stocks: no search support yet
     r = await client.get(
-        "/api/catalog/search?type=acoes_internacionais&q=QQQ",
+        "/api/catalog/search?type=acoes_internacionais&q=AAPL",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body) == 2
+    assert body[0]["name"] == "AAPL"
+    assert body[0]["label"] == "Apple Inc. (NASDAQ)"
+
+    # Also works for REITs
+    r_reit = await client.get(
+        "/api/catalog/search?type=reits&q=AAPL",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert r_reit.status_code == 200
+    assert len(r_reit.json()) == 2
+
+
+async def test_search_unsupported_type_returns_empty(client: AsyncClient) -> None:
+    token = await _register_and_login(client, "cat-unknown@example.com")
+    r = await client.get(
+        "/api/catalog/search?type=unknown_type&q=test",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert r.status_code == 200
     assert r.json() == []
+

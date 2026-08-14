@@ -44,6 +44,12 @@ async def _load_csv() -> pd.DataFrame:
             r = await client.get(_CSV_URL)
             r.raise_for_status()
             df = pd.read_csv(io.StringIO(r.text), sep=";", decimal=",")
+            
+            # Filter out expired bonds (vencimento < latest data base in file)
+            venc_date = pd.to_datetime(df["Data Vencimento"], format="%d/%m/%Y", errors="coerce")
+            base_date = pd.to_datetime(df["Data Base"], format="%d/%m/%Y", errors="coerce")
+            if not base_date.dropna().empty:
+                df = df[venc_date >= base_date.max()]
     except Exception as e:
         if cached is not None:
             return cached[0]

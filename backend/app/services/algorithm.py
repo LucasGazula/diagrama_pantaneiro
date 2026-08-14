@@ -61,17 +61,16 @@ def compute_suggestions(
         return []
 
     exclude = exclude_ids or set()
-    remaining_assets = [a for a in portfolio.assets if a.id not in exclude]
-    portfolio_total = sum(position_value(a) for a in remaining_assets)
+    portfolio_total = sum(position_value(a) for a in portfolio.assets)
     new_total = portfolio_total + aporte
 
-    class_share = _stage_one_inter_class(portfolio, portfolio_total, aporte, exclude)
+    class_share = _stage_one_inter_class(portfolio, new_total, aporte, exclude)
     if not class_share:
         return []
 
     raw_allocation = _stage_two_intra_class(class_share, portfolio.assets, exclude)
     suggestions = _stage_three_quantize(raw_allocation, portfolio.assets, aporte, new_total)
-    return _absorb_residual(suggestions, portfolio.assets, aporte, new_total)
+    return _absorb_residual(suggestions, portfolio.assets, aporte, new_total, exclude)
 
 
 def _absorb_residual(
@@ -79,6 +78,7 @@ def _absorb_residual(
     all_assets: list[Asset],
     aporte: float,
     new_total: float,
+    exclude_ids: set[str] | None = None,
 ) -> list[Suggestion]:
     """Push leftover BRL (from stocks that couldn't buy a whole share) into
     assets that accept exact BRL: crypto and legacy RF. Picks the highest-
@@ -89,34 +89,208 @@ def _absorb_residual(
     if residual <= 0.01:
         return suggestions
 
+    # Tier 1 absorbers: criptomoedas, acoes_internacionais, reits, unpriced RF
+    # These accept exact BRL (or extremely high precision, 4 decimal places)
     idx_absorber = -1
     best_strength = -1
     for i, s in enumerate(suggestions):
-        if s.asset_type == "criptomoedas" or (s.asset_type in RF_TYPES and s.current_price is None):
+        if (
+            s.asset_type == "criptomoedas" 
+            or s.asset_type in FRACTIONAL_SHARE_TYPES 
+            or (s.asset_type in RF_TYPES and s.current_price is None)
+        ):
             if s.strength > best_strength:
                 best_strength = s.strength
                 idx_absorber = i
+
+    # Fallback Tier 1: scan all non-excluded assets in portfolio
     if idx_absorber < 0:
+        exclude = exclude_ids or set()
+        suggested_ids = {s.asset_id for s in suggestions}
+        best: Asset | None = None
+        best_strength = -1
+        for a in all_assets:
+            if a.id in exclude or a.id in suggested_ids:
+                continue
+            if not _is_allocatable(a):
+                continue
+            if (
+                a.type == "criptomoedas" 
+                or a.type in FRACTIONAL_SHARE_TYPES 
+                or (a.type in RF_TYPES and a.current_price is None)
+            ):
+                if a.strength > best_strength:
+                    best_strength = a.strength
+                    best = a
+        if best is not None:
+            suggestion_quantity: float
+            if (best.type == "criptomoedas" or best.type in FRACTIONAL_SHARE_TYPES) and best.current_price:
+                suggestion_quantity = round((residual / best.current_price) * 1e4) / 1e4
+            else:
+                suggestion_quantity = 1.0
+            suggestions.append(
+                Suggestion(
+                    asset_id=best.id,
+                    asset_type=best.type,
+                    asset_name=best.name,
+                    current_value=position_value(best),
+                    current_quantity=best.amount,
+                    current_price=best.current_price,
+                    strength=best.strength,
+                    suggestion_quantity=suggestion_quantity,
+                    suggestion_value=residual,
+                    suggestion_percentage=residual / aporte,
+                    total_after_suggestion_percentage=((position_value(best) + residual) / new_total) * 100.0,
+                )
+            )
+            return suggestions
+
+    # Tier 2 absorbers: priced RF (where current_price > 0). Accepts increments of 0.01 units.
+    if idx_absorber < 0:
+        best_strength = -1
+        for i, s in enumerate(suggestions):
+            if s.asset_type in RF_TYPES and s.current_price is not None and s.current_price > 0:
+                min_step_val = s.current_price * 0.01
+                if residual >= min_step_val:
+                    if s.strength > best_strength:
+                        best_strength = s.strength
+                        idx_absorber = i
+
+    # Fallback Tier 2: scan all non-excluded assets in portfolio for priced RF
+    if idx_absorber < 0:
+        exclude = exclude_ids or set()
+        suggested_ids = {s.asset_id for s in suggestions}
+        best: Asset | None = None
+        best_strength = -1
+        for a in all_assets:
+            if a.id in exclude or a.id in suggested_ids:
+                continue
+            if not _is_allocatable(a):
+                continue
+            if a.type in RF_TYPES and a.current_price is not None and a.current_price > 0:
+                min_step_val = a.current_price * 0.01
+                if residual >= min_step_val:
+                    if a.strength > best_strength:
+                        best_strength = a.strength
+                        best = a
+        if best is not None:
+            additional_qty = math.floor(residual / best.current_price * 100) / 100
+            absorb_val = additional_qty * best.current_price
+            suggestions.append(
+                Suggestion(
+                    asset_id=best.id,
+                    asset_type=best.type,
+                    asset_name=best.name,
+                    current_value=position_value(best),
+                    current_quantity=best.amount,
+                    current_price=best.current_price,
+                    strength=best.strength,
+                    suggestion_quantity=additional_qty,
+                    suggestion_value=absorb_val,
+                    suggestion_percentage=absorb_val / aporte,
+                    total_after_suggestion_percentage=((position_value(best) + absorb_val) / new_total) * 100.0,
+                )
+            )
+            return suggestions
+
+    if idx_absorber >= 0:
+        target = suggestions[idx_absorber]
+        if target.asset_type in RF_TYPES and target.current_price is not None and target.current_price > 0:
+            # Priced RF: absorb in increments of 0.01 units
+            additional_qty = math.floor(residual / target.current_price * 100) / 100
+            absorb_val = additional_qty * target.current_price
+            new_value = target.suggestion_value + absorb_val
+            new_quantity = target.suggestion_quantity + additional_qty
+        else:
+            # Crypto, fractional shares or unpriced RF: absorb entire residual
+            new_value = target.suggestion_value + residual
+            if (target.asset_type == "criptomoedas" or target.asset_type in FRACTIONAL_SHARE_TYPES) and target.current_price:
+                new_quantity = round((new_value / target.current_price) * 1e4) / 1e4
+            else:
+                new_quantity = target.suggestion_quantity
+
+        suggestions[idx_absorber] = target.model_copy(update={
+            "suggestion_value": new_value,
+            "suggestion_quantity": new_quantity,
+            "suggestion_percentage": new_value / aporte,
+            "total_after_suggestion_percentage": ((target.current_value + new_value) / new_total) * 100.0,
+        })
         return suggestions
 
-    target = suggestions[idx_absorber]
-    new_value = target.suggestion_value + residual
-    if target.asset_type == "criptomoedas" and target.current_price:
-        new_quantity = round((new_value / target.current_price) * 1e4) / 1e4
-    else:
-        new_quantity = target.suggestion_quantity
-    suggestions[idx_absorber] = target.model_copy(update={
-        "suggestion_value": new_value,
-        "suggestion_quantity": new_quantity,
-        "suggestion_percentage": new_value / aporte,
-        "total_after_suggestion_percentage": ((target.current_value + new_value) / new_total) * 100.0,
-    })
+    # Tier 3 absorbers: whole-share assets (equities, FIIs, etc.)
+    # Iteratively allocate additional whole units to the best eligible candidate
+    # while residual >= candidate.current_price.
+    while residual > 0.01:
+        # Check candidates already in suggestions
+        candidate_indices = [
+            i for i, s in enumerate(suggestions)
+            if s.current_price is not None and s.current_price > 0 and s.current_price <= (residual + 1e-4)
+            and s.asset_type not in RF_TYPES
+        ]
+        if candidate_indices:
+            best_idx = max(
+                candidate_indices,
+                key=lambda i: (
+                    suggestions[i].strength,
+                    -suggestions[i].total_after_suggestion_percentage,
+                ),
+            )
+            target = suggestions[best_idx]
+            assert target.current_price is not None
+            price = target.current_price
+            new_value = target.suggestion_value + price
+            new_qty = target.suggestion_quantity + 1.0
+            residual -= price
+            suggestions[best_idx] = target.model_copy(update={
+                "suggestion_value": new_value,
+                "suggestion_quantity": new_qty,
+                "suggestion_percentage": new_value / aporte,
+                "total_after_suggestion_percentage": ((target.current_value + new_value) / new_total) * 100.0,
+            })
+            continue
+
+        # Fallback candidates in all_assets (not in suggestions and not in exclude_ids)
+        exclude = exclude_ids or set()
+        suggested_ids = {s.asset_id for s in suggestions}
+        fallback_candidates = [
+            a for a in all_assets
+            if a.id not in exclude and a.id not in suggested_ids
+            and _is_allocatable(a)
+            and a.current_price is not None and a.current_price > 0 and a.current_price <= (residual + 1e-4)
+            and a.type not in RF_TYPES
+        ]
+        if not fallback_candidates:
+            break
+
+        best_asset = max(
+            fallback_candidates,
+            key=lambda a: (a.strength, -position_value(a)),
+        )
+        assert best_asset.current_price is not None
+        price = best_asset.current_price
+        residual -= price
+        suggestions.append(
+            Suggestion(
+                asset_id=best_asset.id,
+                asset_type=best_asset.type,
+                asset_name=best_asset.name,
+                current_value=position_value(best_asset),
+                current_quantity=best_asset.amount,
+                current_price=best_asset.current_price,
+                strength=best_asset.strength,
+                suggestion_quantity=1.0,
+                suggestion_value=price,
+                suggestion_percentage=price / aporte,
+                total_after_suggestion_percentage=((position_value(best_asset) + price) / new_total) * 100.0,
+            )
+        )
+
     return suggestions
 
 
 def _stage_one_inter_class(
     portfolio: Portfolio,
-    portfolio_total: float,
+    new_total: float,
     aporte: float,
     exclude_ids: set[str] | None = None,
 ) -> dict[ClassType, float]:
@@ -132,13 +306,14 @@ def _stage_one_inter_class(
         aporte by target pct.
     """
     exclude = exclude_ids or set()
-    assets = [a for a in portfolio.assets if a.id not in exclude]
+    assets = portfolio.assets
     targets = portfolio.targets
 
-    eligible_classes: set[ClassType] = {a.type for a in assets if _is_allocatable(a)}
+    eligible_classes: set[ClassType] = {
+        a.type for a in assets 
+        if _is_allocatable(a) and a.id not in exclude
+    }
 
-    # Compute gaps against portfolio_total (without aporte), NOT new_total.
-    # This ensures remaining assets can absorb the full aporte.
     gaps: dict[ClassType, float] = {}
     eligible_targets: dict[ClassType, float] = {}
     for cls in eligible_classes:
@@ -146,8 +321,9 @@ def _stage_one_inter_class(
         if pct <= 0:
             continue
         eligible_targets[cls] = pct
+        target_value = (pct / 100.0) * new_total
         current_value = sum(position_value(a) for a in assets if a.type == cls)
-        gap = max(0.0, (pct / 100.0) * portfolio_total - current_value)
+        gap = max(0.0, target_value - current_value)
         if gap > 0:
             gaps[cls] = gap
 
@@ -189,11 +365,13 @@ def _stage_two_intra_class(
       3. Else (all zero, all empty): equal weight.
     """
     exclude = exclude_ids or set()
-    filtered_assets = [a for a in all_assets if a.id not in exclude]
     out: dict[str, float] = {}
 
     for cls, share in class_share.items():
-        allocatable = [a for a in filtered_assets if a.type == cls and _is_allocatable(a)]
+        allocatable = [
+            a for a in all_assets 
+            if a.type == cls and _is_allocatable(a) and a.id not in exclude
+        ]
         if not allocatable:
             continue
 

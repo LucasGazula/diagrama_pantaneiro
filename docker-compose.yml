@@ -1,6 +1,7 @@
 services:
   backend:
     build: ./backend
+    restart: unless-stopped
     environment:
       - DATABASE_URL=sqlite+aiosqlite:////app/data/app.db
       - JWT_SECRET=${JWT_SECRET}
@@ -9,7 +10,7 @@ services:
     volumes:
       - backend_data:/app/data
     ports:
-      - "8000:8000"
+      - "8001:8000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 10s
@@ -19,9 +20,10 @@ services:
 
   frontend:
     build: ./frontend
+    restart: unless-stopped
     image: diagrama-cerrado-frontend:latest
     ports:
-      - "8080:80"
+      - "8081:80"
     depends_on:
       backend:
         condition: service_healthy

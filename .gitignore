@@ -58,5 +58,10 @@ screenshots/
 docs/
 CLAUDE.md
 REVERSE_ENGINEERING.md
+.agents/
+.orca/
+headroom_memory.db
+skills-lock.json
 
 # Lockfiles (uv.lock and package-lock.json are tracked intentionally for reproducible installs)
+

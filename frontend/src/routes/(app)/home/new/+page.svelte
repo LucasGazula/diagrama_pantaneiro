@@ -36,7 +36,9 @@
   // Which asset types have catalog search support (backend returns [] for others)
   let searchable = $derived(
     assetType === "acoes_nacionais" ||
+      assetType === "acoes_internacionais" ||
       assetType === "fundos_imobiliarios" ||
+      assetType === "reits" ||
       assetType === "criptomoedas" ||
       assetType === "rendafixa",
   );
@@ -103,7 +105,9 @@
               ? "CoinGecko"
               : assetType === "rendafixa"
                 ? "Tesouro Direto"
-                : "Brapi"})
+                : assetType === "acoes_internacionais" || assetType === "reits"
+                  ? "Yahoo Finance"
+                  : "Brapi"})
           </span>
         {/if}
       </span>
@@ -111,7 +115,7 @@
         <AutocompleteInput
           value={name}
           {assetType}
-          placeholder={isRF ? "tesouro renda" : "PETR"}
+          placeholder={isRF ? "tesouro renda" : (assetType === "acoes_internacionais" || assetType === "reits" ? "AAPL / O" : "PETR")}
           oninput={(v) => (name = v)}
           onselect={handleCandidatePick}
         />
