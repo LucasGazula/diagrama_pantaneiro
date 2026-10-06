@@ -22,9 +22,18 @@ def position_value(asset: Asset) -> float:
     Catalog-backed positions: amount × currentPrice.
     Manual RF positions: amount (which already holds the BRL value).
     """
-    if asset.current_price is not None:
+    if tracking_mode(asset) == "units" and asset.current_price is not None:
         return asset.amount * asset.current_price
     return asset.amount
+
+
+def tracking_mode(asset) -> str:
+    """Explicit mode; fallback only for legacy fixtures/rows before migration."""
+    return asset.tracking_mode or (
+        "balance"
+        if asset.type in ("rendafixa", "rendafixa_internacional") and asset.current_price is None
+        else "units"
+    )
 
 
 def compute_strength(asset: Asset, questions: list[Question]) -> int:

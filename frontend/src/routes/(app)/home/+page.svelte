@@ -9,7 +9,7 @@
   import { authStore } from "$lib/stores/auth";
   import { portfolioStore } from "$lib/stores/portfolio";
   import { privacyStore } from "$lib/stores/privacy";
-  import { formatBrl, formatBrlCompact, formatQty } from "$lib/format";
+  import { formatBrl, formatBrlCompact, formatQty, formatLastUpdated } from "$lib/format";
   import { CLASS_LABELS } from "$lib/classLabels";
   import EditTargetsModal from "$lib/components/EditTargetsModal.svelte";
   import type { PositionOut, TargetOut } from "$lib/types/api";
@@ -37,12 +37,69 @@
 
   let user = $derived($authStore.user);
 
-  let positions = $state<PositionOut[]>([]);
-  let targets = $state<TargetOut[]>([]);
-  let loading = $state(true);
+  function getCachedPositions(portfolioId: string | null): PositionOut[] {
+    if (typeof localStorage === "undefined") return [];
+    try {
+      const raw = localStorage.getItem(`cached_positions_${portfolioId ?? "default"}`);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function getCachedTargets(portfolioId: string | null): TargetOut[] {
+    if (typeof localStorage === "undefined") return [];
+    try {
+      const raw = localStorage.getItem(`cached_targets_${portfolioId ?? "default"}`);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function saveCache(portfolioId: string | null, pos: PositionOut[], tgt: TargetOut[]) {
+    if (typeof localStorage === "undefined") return;
+    try {
+      localStorage.setItem(`cached_positions_${portfolioId ?? "default"}`, JSON.stringify(pos));
+      localStorage.setItem(`cached_targets_${portfolioId ?? "default"}`, JSON.stringify(tgt));
+    } catch {}
+  }
+
+  let showPortfolioMenu = $state(false);
+  let portfolios = $state($portfolioStore.all);
+  let activePortfolioId = $state($portfolioStore.activeId);
+  portfolioStore.subscribe((s) => {
+    portfolios = s.all;
+    activePortfolioId = s.activeId;
+  });
+  let activePortfolio = $derived(
+    portfolios.find((p) => p.id === activePortfolioId) ?? null,
+  );
+
+  let initialPos = getCachedPositions(activePortfolioId);
+  let initialTgt = getCachedTargets(activePortfolioId);
+
+  let positions = $state<PositionOut[]>(initialPos);
+  let targets = $state<TargetOut[]>(initialTgt);
+  let loading = $state(initialPos.length === 0);
   let error = $state<string | null>(null);
 
+  let lastUpdatedAt = $derived.by<string | null>(() => {
+    if (!positions || positions.length === 0) return null;
+    let latest: number | null = null;
+    for (const p of positions) {
+      if (p.updatedAt) {
+        const t = new Date(p.updatedAt).getTime();
+        if (!isNaN(t) && (latest === null || t > latest)) {
+          latest = t;
+        }
+      }
+    }
+    return latest ? new Date(latest).toISOString() : null;
+  });
+
   let refreshing = $state(false);
+  let backgroundSyncing = $state(false);
   let refreshMessage = $state<string | null>(null);
   let refreshFailed = $state(false);
 
@@ -69,17 +126,6 @@
     return sortDesc ? "▼" : "▲";
   }
 
-  let showPortfolioMenu = $state(false);
-  let portfolios = $state($portfolioStore.all);
-  let activePortfolioId = $state($portfolioStore.activeId);
-  portfolioStore.subscribe((s) => {
-    portfolios = s.all;
-    activePortfolioId = s.activeId;
-  });
-  let activePortfolio = $derived(
-    portfolios.find((p) => p.id === activePortfolioId) ?? null,
-  );
-
   async function switchPortfolio(id: string) {
     if (id === activePortfolioId) {
       showPortfolioMenu = false;
@@ -87,12 +133,25 @@
     }
     portfolioStore.setActive(id);
     showPortfolioMenu = false;
-    loading = true;
+    const cachedP = getCachedPositions(id);
+    const cachedT = getCachedTargets(id);
+    if (cachedP.length > 0) {
+      positions = cachedP;
+      targets = cachedT;
+      loading = false;
+    } else {
+      loading = true;
+    }
     error = null;
     try {
-      [positions, targets] = await Promise.all([listPositions(), listTargets()]);
+      const [freshPos, freshTgt] = await Promise.all([listPositions(), listTargets()]);
+      positions = freshPos;
+      targets = freshTgt;
+      saveCache(id, freshPos, freshTgt);
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      if (positions.length === 0) {
+        error = e instanceof Error ? e.message : String(e);
+      }
     } finally {
       loading = false;
     }
@@ -103,16 +162,20 @@
     refreshMessage = null;
     refreshFailed = false;
     try {
-      const result = await refreshPrices();
+      const result = await refreshPrices("all");
       const parts: string[] = [];
       parts.push(`${result.refreshed} posição(ões) atualizada(s)`);
       if (result.skippedManual > 0) parts.push(`${result.skippedManual} manual (RF) ignorada(s)`);
+      if (result.stale?.length) {
+        parts.push(`${result.stale.length} cotação(ões) antiga(s); confira data antes de aportar`);
+      }
       if (result.failed.length > 0) {
         parts.push(`${result.failed.length} falharam: ${result.failed.map((f) => f.name).join(", ")}`);
         refreshFailed = true;
       }
       refreshMessage = parts.join(" · ");
       [positions, targets] = await Promise.all([listPositions(), listTargets()]);
+      saveCache(activePortfolioId, positions, targets);
     } catch (e) {
       refreshMessage = `Erro: ${e instanceof Error ? e.message : String(e)}`;
       refreshFailed = true;
@@ -122,12 +185,31 @@
   }
 
   onMount(async () => {
+    // 1. Initial quick load from API
     try {
-      [positions, targets] = await Promise.all([listPositions(), listTargets()]);
+      const [freshPos, freshTgt] = await Promise.all([listPositions(), listTargets()]);
+      positions = freshPos;
+      targets = freshTgt;
+      saveCache(activePortfolioId, freshPos, freshTgt);
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
+      if (positions.length === 0) {
+        error = e instanceof Error ? e.message : String(e);
+      }
     } finally {
       loading = false;
+    }
+
+    // 2. Background price refresh
+    try {
+      backgroundSyncing = true;
+      await refreshPrices("all", false);
+      const updated = await listPositions();
+      positions = updated;
+      saveCache(activePortfolioId, updated, targets);
+    } catch {
+      // Non-fatal: background auto-refresh does not disrupt view
+    } finally {
+      backgroundSyncing = false;
     }
   });
 
@@ -249,14 +331,21 @@
           {/if}
         </div>
       {/if}
+      {#if backgroundSyncing || refreshing}
+        <span class="sep">//</span>
+        <span class="sync-indicator">
+          <span class="spin">⟳</span> atualizando…
+        </span>
+      {/if}
     </div>
     <nav class="nav">
-      <button type="button" onclick={handleRefresh} disabled={refreshing} class="btn">
-        {refreshing ? "› sincronizando…" : "› atualizar"}
+      <button type="button" onclick={handleRefresh} disabled={refreshing || backgroundSyncing} class="btn">
+        › atualizar
       </button>
       <a class="btn" href="/home/new">› adicionar</a>
       <a class="btn" href="/diagram">› diagrama</a>
       <a class="btn" href="/history">› histórico</a>
+      <a class="btn" href="/proventos">› proventos</a>
       <a class="btn btn-accent" href="/aporte">› aporte ▸</a>
       <button class="btn" onclick={handleLogout}>› sair</button>
     </nav>
@@ -269,9 +358,9 @@
     </p>
   {/if}
 
-  {#if loading}
+  {#if loading && positions.length === 0}
     <p class="loading"><span class="blink">█</span> carregando carteira</p>
-  {:else if error}
+  {:else if error && positions.length === 0}
     <p class="toast toast-err"><span class="prompt">!</span> {error}</p>
   {:else}
     <!-- HERO: total + donut -->
@@ -290,6 +379,11 @@
           <span class="ink-muted">·</span>
           <span class="ink-dim">classes:</span>
           <span class="ink">{donutSegments.length}</span>
+          {#if lastUpdatedAt}
+            <span class="ink-muted">·</span>
+            <span class="ink-dim">atualizado:</span>
+            <span class="ink">{formatLastUpdated(lastUpdatedAt)}</span>
+          {/if}
         </p>
         <div class="ascii-hr">
           ┼───────────────────────────────────
@@ -392,7 +486,9 @@
             <div class="bar-track">
               <!-- tick marks every 10% of rendered width -->
               {#each Array(10) as _, i}
-                <span class="tick" style="left: {((i + 1) * 100) / 10 / (max / 100)}%"></span>
+                {#if (i + 1) * 10 < max}
+                  <span class="tick" style="left: {((i + 1) * 10 / max) * 100}%"></span>
+                {/if}
               {/each}
               <!-- fill -->
               <div
@@ -400,7 +496,7 @@
                 class:over={diff > 0.5}
                 class:under={diff < -0.5}
                 class:match={Math.abs(diff) <= 0.5}
-                style="width: {(current / max) * 100}%"
+                style="clip-path: inset(0 {100 - (current / max) * 100}% 0 0)"
               ></div>
               <!-- target marker -->
               <span class="target-marker" style="left: {(target / max) * 100}%">▼</span>
@@ -419,9 +515,17 @@
 
       <header class="panel-head">
         <h2 class="panel-title">── posições [{positions.length}] ──</h2>
-        <span class="panel-sub ink-dim">ordenar_por={sortKey} {sortDesc ? "desc" : "asc"}</span>
+        <div class="panel-meta">
+          {#if lastUpdatedAt}
+            <span class="panel-sub ink-dim">atualizado: <span class="ink">{formatLastUpdated(lastUpdatedAt)}</span></span>
+            <span class="panel-sub ink-muted">·</span>
+          {/if}
+          <span class="panel-sub ink-dim">ordenar_por={sortKey} {sortDesc ? "desc" : "asc"}</span>
+        </div>
       </header>
 
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex (Scrollable region needs keyboard focus.) -->
+      <div class="table-scroll" role="region" aria-label="Posições da carteira, role para ver todas as colunas" tabindex="0">
       <table class="grid">
         <thead>
           <tr>
@@ -432,7 +536,7 @@
               classe <span class="sort-ind">{sortIndicator("classe")}</span>
             </th>
             <th class="col-num sortable" class:is-active={sortKey === "quantidade"} onclick={() => toggleSort("quantidade")} onkeydown={(e) => e.key === "Enter" && toggleSort("quantidade")} tabindex="0">
-              quantidade <span class="sort-ind">{sortIndicator("quantidade")}</span>
+              quantidade / saldo <span class="sort-ind">{sortIndicator("quantidade")}</span>
             </th>
             <th class="col-num sortable" class:is-active={sortKey === "preco"} onclick={() => toggleSort("preco")} onkeydown={(e) => e.key === "Enter" && toggleSort("preco")} tabindex="0">
               preço <span class="sort-ind">{sortIndicator("preco")}</span>
@@ -477,10 +581,13 @@
                 <span class="ink-dim">{CLASS_LABELS[p.assetType] ?? p.assetType}</span>
               </td>
               <td class="col-num tab-nums">
-                {fmtQty(p.amount)}
+                {p.trackingMode === "balance" ? fmtBRL(p.amount) : fmtQty(p.amount)}
               </td>
               <td class="col-num tab-nums ink-dim">
                 {p.currentPrice != null ? fmtBRL(p.currentPrice) : "—"}
+                {#if p.quoteAsOf}
+                  <span class="block text-xs text-slate-500">{p.quoteStale ? "Cotação antiga:" : "Cotação:"} {new Date(p.quoteAsOf).toLocaleDateString("pt-BR", { timeZone: "UTC" })}</span>
+                {/if}
               </td>
               <td class="col-num tab-nums val">{fmtBRL(p.currentValueBrl)}</td>
               <td class="col-share">
@@ -510,6 +617,7 @@
           {/each}
         </tbody>
       </table>
+      </div>
     </section>
   {/if}
 
@@ -564,6 +672,23 @@
   .prompt { color: var(--accent); font-weight: 700; }
   .sep { color: var(--ink-muted); }
   .user { color: var(--ink-dim); }
+
+  .sync-indicator {
+    color: var(--accent);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .spin {
+    display: inline-block;
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+  }
 
   .portfolio-wrap { position: relative; }
   .portfolio-btn {
@@ -764,6 +889,7 @@
     margin-bottom: 18px;
   }
   .panel-title { font-size: 12px; font-weight: 700; letter-spacing: 0.1em; color: var(--ink-dim); }
+  .panel-meta { display: flex; align-items: center; gap: 8px; }
   .panel-sub { font-size: 11px; letter-spacing: 0.05em; }
 
   /* ── targets ────────────────────────────── */
@@ -792,8 +918,9 @@
   }
   .tick { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--hairline-strong); pointer-events: none; }
   .bar-fill {
+    width: 100%;
     height: 100%;
-    transition: width 600ms cubic-bezier(0.2, 0.9, 0.3, 1);
+    transition: clip-path 600ms cubic-bezier(0.2, 0.9, 0.3, 1);
     background: repeating-linear-gradient(
       90deg,
       var(--fill) 0 6px,
@@ -819,6 +946,7 @@
   .grid {
     display: table;
     width: 100%;
+    min-width: 980px;
     border-collapse: collapse;
     font-size: 12px;
     table-layout: fixed;
@@ -907,7 +1035,25 @@
 
   @media (max-width: 860px) {
     .hero { grid-template-columns: 1fr; }
-    .hero-right { justify-self: center; }
-    .nav { justify-content: flex-start; }
+    .hero-right { justify-self: center; width: min(100%, 300px); }
+    .nav { justify-content: flex-start; flex-wrap: wrap; }
+    .brand { flex-wrap: wrap; min-width: 0; }
+    .panel-head, .panel-meta { flex-wrap: wrap; gap: 10px; }
+    .sub { flex-wrap: wrap; }
+  }
+  @media (max-width: 640px) {
+    .wrap { padding: 16px 12px 48px; }
+    .topbar { align-items: stretch; gap: 16px; padding: 12px; }
+    .brand-logo { height: 36px; }
+    .brand-name { font-size: 11px; }
+    .panel, .hero { padding: 20px 12px; }
+    .hero { gap: 24px; }
+    .total { font-size: clamp(24px, 7vw, 36px); overflow-wrap: anywhere; }
+    .legend-row { grid-template-columns: 10px 32px minmax(0, 1fr) auto; gap: 6px; }
+    .legend-val { grid-column: 3 / -1; justify-self: end; }
+    .target-head { grid-template-columns: 38px minmax(0, 1fr); gap: 6px; }
+    .target-stats { grid-column: 2; flex-wrap: wrap; }
+    .panel-title { overflow-wrap: anywhere; }
+    .panel-head .btn { min-height: 44px; }
   }
 </style>

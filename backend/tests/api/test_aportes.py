@@ -2,6 +2,14 @@ from __future__ import annotations
 
 import pytest
 from httpx import AsyncClient
+from unittest.mock import AsyncMock
+
+
+@pytest.fixture(autouse=True)
+def offline_price_refresh(monkeypatch):
+    # These tests verify aporte persistence against captured prices. Provider
+    # behavior is covered by market_data tests; live quotes invalidate fixtures.
+    monkeypatch.setattr("app.api.aportes.refresh_portfolio_prices", AsyncMock())
 
 
 async def _register_login_seed(client: AsyncClient, email: str) -> str:

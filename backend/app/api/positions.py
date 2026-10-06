@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -30,7 +31,13 @@ _SEED_FIXTURE = (
 
 
 def _to_out(p: Position) -> PositionOut:
-    current_value = p.amount * p.current_price if p.current_price is not None else p.amount
+    mode = _mode(p)
+    current_value = (
+        p.amount * p.current_price if mode == "units" and p.current_price is not None else p.amount
+    )
+    updated_at = p.updated_at
+    if updated_at is not None and updated_at.tzinfo is None:
+        updated_at = updated_at.replace(tzinfo=timezone.utc)
     return PositionOut(
         id=p.id,
         name=p.name,
@@ -41,12 +48,23 @@ def _to_out(p: Position) -> PositionOut:
         strength=p.strength,
         diagram_responses=p.diagram_responses,
         source=p.source,
+        updated_at=updated_at,
+        tracking_mode=mode,
+        external_id=p.external_id,
+        quote_as_of=p.quote_as_of,
+        quote_stale=p.quote_stale,
     )
 
 
-async def _bank_size(
-    session: AsyncSession, user_id: uuid.UUID, diagram_type: str
-) -> int:
+def _mode(p: Position) -> str:
+    return p.tracking_mode or (
+        "balance"
+        if p.asset_type in ("rendafixa", "rendafixa_internacional") and p.current_price is None
+        else "units"
+    )
+
+
+async def _bank_size(session: AsyncSession, user_id: uuid.UUID, diagram_type: str) -> int:
     """Count diagram_questions for this user matching the given diagram type."""
     from sqlalchemy import func as sa_func
 
@@ -102,9 +120,7 @@ async def _seed_if_empty(
     # anywhere yet). Creating a second portfolio must NOT re-seed — the user
     # expects it to start empty.
     existing = (
-        await session.execute(
-            select(Position).where(Position.user_id == user_id).limit(1)
-        )
+        await session.execute(select(Position).where(Position.user_id == user_id).limit(1))
     ).first()
     if existing is not None:
         return
@@ -124,10 +140,10 @@ async def list_positions(
 ) -> list[PositionOut]:
     await _seed_if_empty(session, user.id, portfolio.id)
     rows = (
-        await session.execute(
-            select(Position).where(Position.portfolio_id == portfolio.id)
-        )
-    ).scalars().all()
+        (await session.execute(select(Position).where(Position.portfolio_id == portfolio.id)))
+        .scalars()
+        .all()
+    )
     return [_to_out(p) for p in rows]
 
 
@@ -138,6 +154,16 @@ async def create_position(
     portfolio: Portfolio = Depends(get_active_portfolio),
     session: AsyncSession = Depends(get_async_session),
 ) -> PositionOut:
+    mode = body.tracking_mode or (
+        "balance"
+        if body.asset_type in ("rendafixa", "rendafixa_internacional")
+        and body.current_price is None
+        else "units"
+    )
+    if mode == "balance" and body.asset_type not in ("rendafixa", "rendafixa_internacional"):
+        raise HTTPException(422, "Saldo manual disponível apenas para renda fixa")
+    if mode == "units" and body.current_price is None:
+        raise HTTPException(422, "Informe preço positivo para acompanhar quantidade")
     strength = await _compute_strength_if_diagram(
         session, user.id, body.asset_type, body.diagram_responses, body.strength
     )
@@ -148,6 +174,8 @@ async def create_position(
         asset_type=body.asset_type,
         amount=body.amount,
         current_price=body.current_price,
+        tracking_mode=mode,
+        external_id=body.external_id,
         strength=strength,
         diagram_responses=body.diagram_responses,
         source="user",
@@ -177,6 +205,33 @@ async def update_position(
         raise HTTPException(status_code=404, detail="position not found")
 
     updates = body.model_dump(exclude_unset=True)
+    if "name" in updates and updates["name"] is None:
+        raise HTTPException(422, "Nome não pode ser nulo")
+    old_mode = _mode(pos)
+    new_mode = updates.get("tracking_mode") or old_mode
+    price = updates.get("current_price", pos.current_price)
+    if new_mode == "balance" and pos.asset_type not in ("rendafixa", "rendafixa_internacional"):
+        raise HTTPException(422, "Saldo manual disponível apenas para renda fixa")
+    if new_mode == "units" and (price is None or price <= 0):
+        raise HTTPException(422, "Informe preço positivo para acompanhar quantidade")
+    if "amount" in updates and updates["amount"] is None:
+        raise HTTPException(422, "Quantidade/saldo não pode ser nulo")
+    if new_mode != old_mode:
+        # Mode changes convert existing holdings. Amount must be edited separately.
+        if "amount" in updates:
+            raise HTTPException(
+                422, "Ao mudar acompanhamento, salve conversão antes de editar saldo"
+            )
+        if new_mode == "units":
+            updates["amount"] = pos.amount / price
+        else:
+            if pos.current_price is None:
+                raise HTTPException(422, "Preço anterior necessário para converter saldo")
+            updates["amount"] = pos.amount * pos.current_price
+    updates["tracking_mode"] = new_mode
+    if "current_price" in updates:
+        updates["quote_stale"] = False
+        updates["quote_as_of"] = None
     for k, v in updates.items():
         setattr(pos, k, v)
 

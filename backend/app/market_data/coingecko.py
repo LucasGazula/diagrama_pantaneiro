@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import httpx
-
 from app.market_data.base import (
     AdapterNetworkError,
     AdapterNotFoundError,
     Candidate,
     PriceQuote,
 )
+from app.market_data.http_client import market_client
 
 _ENDPOINT = "https://api.coingecko.com/api/v3/simple/price"
 _SEARCH_ENDPOINT = "https://api.coingecko.com/api/v3/search"
@@ -46,8 +45,8 @@ class CoinGeckoAdapter:
         if not q:
             return []
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                r = await client.get(_SEARCH_ENDPOINT, params={"query": q})
+            async with market_client() as client:
+                r = await client.get(_SEARCH_ENDPOINT, params={"query": q}, timeout=5.0)
                 r.raise_for_status()
                 data = r.json()
         except Exception:
@@ -67,10 +66,8 @@ class CoinGeckoAdapter:
     async def fetch_price(self, external_id: str) -> PriceQuote:
         coin_id = resolve_coin_id(external_id)
         try:
-            async with httpx.AsyncClient(timeout=8.0) as client:
-                r = await client.get(
-                    _ENDPOINT, params={"ids": coin_id, "vs_currencies": "brl"}
-                )
+            async with market_client() as client:
+                r = await client.get(_ENDPOINT, params={"ids": coin_id, "vs_currencies": "brl"})
                 r.raise_for_status()
                 data = r.json()
         except Exception as e:

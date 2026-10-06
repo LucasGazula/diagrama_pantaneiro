@@ -43,6 +43,8 @@ class Asset(BaseModel):
     amount: float
     strength: int
     current_price: float | None = None
+    tracking_mode: Literal["balance", "units"] | None = None
+    quote_stale: bool = False
     diagram_responses: list[str] | None = None
 
 
@@ -63,6 +65,7 @@ class Suggestion(BaseModel):
     current_value: float
     current_quantity: float
     current_price: float | None = None
+    tracking_mode: Literal["balance", "units"] = "units"
     strength: int
     suggestion_quantity: float
     suggestion_value: float

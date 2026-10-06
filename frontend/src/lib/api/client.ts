@@ -15,6 +15,26 @@ export class ApiError extends Error {
   }
 }
 
+let refreshing: Promise<boolean> | null = null;
+
+export async function refreshSession(): Promise<boolean> {
+  if (!refreshing) {
+    const originalToken = get(authStore).token;
+    refreshing = (async () => {
+      const response = await fetch(`${BASE_URL}/api/auth/jwt/refresh`, {
+        method: "POST", credentials: "include",
+      });
+      if (response.status === 401) return false;
+      if (!response.ok) throw new ApiError(response.status, "Não foi possível renovar sessão");
+      const body = await response.json();
+      if (get(authStore).token !== originalToken) return false;
+      authStore.setToken(body.access_token);
+      return true;
+    })().finally(() => { refreshing = null; });
+  }
+  return refreshing;
+}
+
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = get(authStore).token;
   const headers: Record<string, string> = {
@@ -29,7 +49,14 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
     headers["X-Portfolio-Id"] = activePortfolioId;
   }
 
-  const response = await fetch(`${BASE_URL}/api${path}`, { ...init, headers });
+  let response = await fetch(`${BASE_URL}/api${path}`, { ...init, credentials: "include", headers });
+  if (response.status === 401 && !path.startsWith("/auth/")) {
+    // Parallel requests share one renewal. Transient failures preserve saved login.
+    if (await refreshSession()) {
+      headers.Authorization = `Bearer ${get(authStore).token}`;
+      response = await fetch(`${BASE_URL}/api${path}`, { ...init, credentials: "include", headers });
+    }
+  }
 
   if (response.status === 401) {
     authStore.logout();

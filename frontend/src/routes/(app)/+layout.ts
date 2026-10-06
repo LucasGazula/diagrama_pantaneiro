@@ -1,8 +1,9 @@
-import { redirect } from "@sveltejs/kit";
+import { redirect, error } from "@sveltejs/kit";
 import { get } from "svelte/store";
 
 import { getCurrentUser } from "$lib/api/auth";
 import { listPortfolios } from "$lib/api/portfolios";
+import { ApiError, refreshSession } from "$lib/api/client";
 import { authStore } from "$lib/stores/auth";
 import { portfolioStore } from "$lib/stores/portfolio";
 
@@ -11,18 +12,25 @@ import type { LayoutLoad } from "./$types";
 export const ssr = false;
 
 export const load: LayoutLoad = async () => {
-  const state = get(authStore);
+  let state = get(authStore);
   if (!state.token) {
-    throw redirect(307, "/login");
+    let renewed: boolean;
+    try {
+      renewed = await refreshSession();
+    } catch {
+      throw error(503, "Não foi possível verificar sessão. Atualize página para tentar novamente.");
+    }
+    if (!renewed) throw redirect(307, "/login");
+    state = get(authStore);
   }
 
   if (!state.user) {
     try {
       const user = await getCurrentUser();
       authStore.setUser(user);
-    } catch {
-      authStore.logout();
-      throw redirect(307, "/login");
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) throw redirect(307, "/login");
+      throw error(503, "Não foi possível verificar sessão. Atualize página para tentar novamente.");
     }
   }
 

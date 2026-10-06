@@ -29,9 +29,7 @@ async def session(session_maker) -> AsyncSession:
 
 async def _seeded_user(session: AsyncSession) -> tuple[uuid.UUID, uuid.UUID]:
     user_id = uuid.uuid4()
-    p = PortfolioModel(
-        id=uuid.uuid4(), user_id=user_id, name="Principal", is_default=True
-    )
+    p = PortfolioModel(id=uuid.uuid4(), user_id=user_id, name="Principal", is_default=True)
     session.add(p)
     await session.flush()
     with FIXTURE.open("r", encoding="utf-8") as f:
@@ -64,13 +62,9 @@ async def test_apply_allocation_updates_position_and_marks_applied(
     event = await create_aporte_event(session, user_id, portfolio_id, 500)
     await session.commit()
 
-    btc_alloc = next(
-        a for a in event.allocations if a.asset_type_snapshot == "criptomoedas"
-    )
+    btc_alloc = next(a for a in event.allocations if a.asset_type_snapshot == "criptomoedas")
     btc_position_before = (
-        await session.execute(
-            select(Position).where(Position.id == btc_alloc.position_id)
-        )
+        await session.execute(select(Position).where(Position.id == btc_alloc.position_id))
     ).scalar_one()
     amount_before = btc_position_before.amount
 
@@ -78,9 +72,7 @@ async def test_apply_allocation_updates_position_and_marks_applied(
     await session.commit()
 
     refreshed = (
-        await session.execute(
-            select(AporteAllocation).where(AporteAllocation.id == btc_alloc.id)
-        )
+        await session.execute(select(AporteAllocation).where(AporteAllocation.id == btc_alloc.id))
     ).scalar_one()
     assert refreshed.applied is True
     assert refreshed.applied_at is not None
@@ -88,14 +80,9 @@ async def test_apply_allocation_updates_position_and_marks_applied(
     assert refreshed.applied_value_brl == btc_alloc.suggested_value_brl
 
     btc_position_after = (
-        await session.execute(
-            select(Position).where(Position.id == btc_alloc.position_id)
-        )
+        await session.execute(select(Position).where(Position.id == btc_alloc.position_id))
     ).scalar_one()
-    assert (
-        abs(btc_position_after.amount - (amount_before + btc_alloc.suggested_quantity))
-        < 1e-6
-    )
+    assert abs(btc_position_after.amount - (amount_before + btc_alloc.suggested_quantity)) < 1e-6
 
 
 async def test_apply_rf_allocation_adds_brl_value_to_amount(
@@ -106,13 +93,9 @@ async def test_apply_rf_allocation_adds_brl_value_to_amount(
     event = await create_aporte_event(session, user_id, portfolio_id, 500)
     await session.commit()
 
-    rf_alloc = next(
-        a for a in event.allocations if a.asset_type_snapshot == "rendafixa"
-    )
+    rf_alloc = next(a for a in event.allocations if a.asset_type_snapshot == "rendafixa")
     pos_before = (
-        await session.execute(
-            select(Position).where(Position.id == rf_alloc.position_id)
-        )
+        await session.execute(select(Position).where(Position.id == rf_alloc.position_id))
     ).scalar_one()
     assert pos_before.current_price is None  # confirm unpriced
     amount_before = pos_before.amount
@@ -121,13 +104,9 @@ async def test_apply_rf_allocation_adds_brl_value_to_amount(
     await session.commit()
 
     pos_after = (
-        await session.execute(
-            select(Position).where(Position.id == rf_alloc.position_id)
-        )
+        await session.execute(select(Position).where(Position.id == rf_alloc.position_id))
     ).scalar_one()
-    assert (
-        abs(pos_after.amount - (amount_before + rf_alloc.suggested_value_brl)) < 1e-6
-    )
+    assert abs(pos_after.amount - (amount_before + rf_alloc.suggested_value_brl)) < 1e-6
 
 
 async def test_apply_priced_rf_adds_units_not_brl(session: AsyncSession) -> None:
@@ -137,17 +116,22 @@ async def test_apply_priced_rf_adds_units_not_brl(session: AsyncSession) -> None
     # Promote one RF position to priced (simulate a Tesouro refresh having run)
     # Find an RF position, switch it to unit-priced.
     rf = (
-        await session.execute(
-            select(Position).where(
-                Position.user_id == user_id,
-                Position.asset_type == "rendafixa",
+        (
+            await session.execute(
+                select(Position).where(
+                    Position.user_id == user_id,
+                    Position.asset_type == "rendafixa",
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     assert rf is not None
     # Simulate: originally amount=1074 BRL, now Tesouro PU=500, so 2.148 units
     rf.amount = 2.148
     rf.current_price = 500.0
+    rf.tracking_mode = "units"
     await session.commit()
 
     # Create an aporte big enough that this position gets allocated
@@ -160,9 +144,7 @@ async def test_apply_priced_rf_adds_units_not_brl(session: AsyncSession) -> None
         None,
     )
     if priced_alloc is None:
-        pytest.skip(
-            "algorithm didn't allocate to the priced-RF position at this aporte level"
-        )
+        pytest.skip("algorithm didn't allocate to the priced-RF position at this aporte level")
 
     # With price set, quantity should be units (not 1.0)
     # and value should be quantity * price

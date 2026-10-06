@@ -125,8 +125,8 @@
   }
 </script>
 
-<section class="mx-auto mt-8 max-w-5xl p-6">
-  <header class="mb-6 flex items-center justify-between">
+<section class="responsive-page mx-auto mt-8 max-w-5xl p-6">
+  <header class="page-header mb-6 flex items-center justify-between">
     <div>
       <h1 class="text-2xl font-bold">Diagrama — critérios de pontuação</h1>
       <p class="text-sm text-slate-600">
@@ -148,7 +148,7 @@
     <div class="grid gap-6 md:grid-cols-2">
       {#each [{ type: "diagrama-do-cerrado", label: "Diagrama Pantaneiro", subtitle: "Ações nacionais + internacionais", list: cerrado }, { type: "investimentos-imobiliarios", label: "Investimentos Imobiliários", subtitle: "FIIs + REITs", list: imobiliarios }] as bank (bank.type)}
         <div class="rounded border border-slate-200 bg-white p-4">
-          <div class="mb-3 flex items-start justify-between">
+          <div class="mb-3 flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-500">
                 {bank.label}

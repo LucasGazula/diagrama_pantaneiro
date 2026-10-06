@@ -92,3 +92,48 @@ input:focus, select:focus, textarea:focus {
   box-shadow: 0 0 0 1px var(--accent-dim);
 }
 select option { background: var(--surface); color: var(--ink); }
+
+/* Wide financial tables scroll independently, never widen the page. */
+.table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+.table-scroll:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.table-scroll > table { min-width: 720px; }
+
+@media (max-width: 640px) {
+  /* Reserve space for the fixed privacy control; do not overlap page actions. */
+  .app-shell { padding-top: 60px; }
+  .app-shell .responsive-page { margin-top: 0; padding: 16px 12px 48px; }
+  .app-shell .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .app-shell .topbar .brand { min-width: 0; flex-wrap: wrap; gap: 8px; }
+  .app-shell .topbar .brand-name { overflow-wrap: anywhere; }
+  .app-shell .topbar .user { overflow-wrap: anywhere; min-width: 0; }
+  .app-shell .topbar .nav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    gap: 8px;
+  }
+  .app-shell .topbar .nav .btn {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+  }
+  .app-shell .topbar .portfolio-wrap { width: 100%; min-width: 0; }
+  .app-shell .topbar .portfolio-btn { min-height: 44px; max-width: 100%; }
+  .app-shell .topbar .portfolio-label { overflow-wrap: anywhere; min-width: 0; }
+  .app-shell .topbar .portfolio-menu { width: 100%; min-width: 0; }
+  .app-shell .topbar .portfolio-item { min-height: 44px; overflow-wrap: anywhere; }
+  .app-shell input:not([type="checkbox"]):not([type="radio"]),
+  .app-shell select, .app-shell textarea { font-size: 16px; min-width: 0; min-height: 44px; }
+  .app-shell button, .app-shell .form-actions a { min-height: 44px; }
+  .app-shell .form-actions { flex-wrap: wrap; gap: 12px; }
+}

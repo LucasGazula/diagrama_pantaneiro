@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import uuid
+from typing import TYPE_CHECKING
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
+
+if TYPE_CHECKING:
+    from app.models.aporte_event import AporteEvent
 
 
 class AporteAllocation(Base):
@@ -25,6 +29,7 @@ class AporteAllocation(Base):
     position_name_snapshot: Mapped[str] = mapped_column(String(128))
     asset_type_snapshot: Mapped[str] = mapped_column(String(48))
     price_at_aporte_brl: Mapped[float | None] = mapped_column(Float, nullable=True)
+    tracking_mode_snapshot: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     # Suggestion (what the algorithm computed)
     suggested_value_brl: Mapped[float] = mapped_column(Float)
@@ -32,9 +37,7 @@ class AporteAllocation(Base):
 
     # Apply action
     applied: Mapped[bool] = mapped_column(Boolean, default=False)
-    applied_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     applied_value_brl: Mapped[float | None] = mapped_column(Float, nullable=True)
     applied_quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
 

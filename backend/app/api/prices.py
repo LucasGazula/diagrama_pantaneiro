@@ -16,15 +16,22 @@ router = APIRouter(prefix="/api/prices", tags=["prices"])
 
 @router.post("/refresh", response_model=RefreshSummaryOut)
 async def refresh_prices(
+    scope: str = "active",
+    force: bool = True,
     user: User = Depends(current_active_user),
     portfolio: Portfolio = Depends(get_active_portfolio),
     session: AsyncSession = Depends(get_async_session),
 ) -> RefreshSummaryOut:
-    result = await refresh_portfolio_prices(session, portfolio.id)
+    refresh_options = {} if force else {"only_stale": True}
+    if scope == "all":
+        result = await refresh_portfolio_prices(
+            session, portfolio.id, user_id=user.id, **refresh_options
+        )
+    else:
+        result = await refresh_portfolio_prices(session, portfolio.id, **refresh_options)
     return RefreshSummaryOut(
         refreshed=result.refreshed,
         skipped_manual=result.skipped_manual,
-        failed=[
-            PriceFailureOut(name=f.name, reason=f.reason) for f in result.failed
-        ],
+        failed=[PriceFailureOut(name=f.name, reason=f.reason) for f in result.failed],
+        stale=[PriceFailureOut(name=f.name, reason=f.reason) for f in result.stale],
     )

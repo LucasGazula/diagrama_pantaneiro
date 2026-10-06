@@ -5,5 +5,7 @@
   let { children }: { children: Snippet } = $props();
 </script>
 
-<PrivacyToggle />
-{@render children()}
+<div class="app-shell">
+  <PrivacyToggle />
+  {@render children()}
+</div>

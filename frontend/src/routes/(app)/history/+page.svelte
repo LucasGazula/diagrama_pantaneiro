@@ -40,8 +40,8 @@
   }
 </script>
 
-<section class="mx-auto mt-8 max-w-5xl p-6">
-  <header class="mb-6 flex items-center justify-between">
+<section class="responsive-page mx-auto mt-8 max-w-5xl p-6">
+  <header class="page-header mb-6 flex items-center justify-between">
     <h1 class="text-2xl font-bold">Histórico de aportes</h1>
     <a href="/home" class="text-sm text-slate-600 underline">← voltar</a>
   </header>
@@ -58,7 +58,8 @@
       </a>
     </div>
   {:else}
-    <div class="rounded border border-slate-200 bg-white">
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex (Scrollable region needs keyboard focus.) -->
+    <div class="table-scroll rounded border border-slate-200 bg-white" role="region" aria-label="Histórico de aportes, role para ver todas as colunas" tabindex="0">
       <table class="w-full text-sm">
         <thead class="border-b border-slate-200 text-left text-xs uppercase text-slate-500">
           <tr>

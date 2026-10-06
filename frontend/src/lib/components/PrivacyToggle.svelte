@@ -9,7 +9,7 @@
   onclick={() => privacyStore.toggle()}
   aria-label={masked ? "Mostrar valores" : "Ocultar valores"}
   title={masked ? "Mostrar valores" : "Ocultar valores"}
-  class="fixed top-3 right-3 z-50 flex h-9 w-9 items-center justify-center rounded-full border border-slate-300 bg-white/90 text-slate-700 shadow-sm backdrop-blur hover:bg-white"
+  class="fixed top-3 right-3 z-30 flex h-11 w-11 items-center justify-center rounded-full border border-slate-300 bg-white/90 text-slate-700 shadow-sm backdrop-blur hover:bg-white sm:h-9 sm:w-9"
 >
   {#if masked}
     <!-- eye-off -->

@@ -144,7 +144,7 @@
     role="dialog"
     aria-modal="true"
     aria-labelledby="edit-targets-title"
-    class="w-full max-w-md rounded bg-white p-5 shadow-xl"
+    class="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded bg-white p-5 shadow-xl"
   >
     <div class="mb-3 flex items-center justify-between">
       <h2 id="edit-targets-title" class="text-base font-semibold">Edit targets</h2>
@@ -206,13 +206,13 @@
       {/if}
 
       {#if addingPreset}
-        <div class="mt-2 flex items-center gap-2">
+        <div class="mt-2 flex flex-wrap items-center gap-2">
           <input
             type="text"
             maxlength="48"
             placeholder="Nome do preset"
             bind:value={newName}
-            class="flex-1 rounded border border-slate-300 px-2 py-1 text-sm"
+            class="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1 text-sm"
           />
           <button
             type="button"
@@ -259,7 +259,7 @@
 
     <hr class="my-3 border-slate-200" />
 
-    <div class="flex items-center justify-between">
+    <div class="flex flex-wrap items-center justify-between gap-3">
       <p
         class="text-sm tabular-nums"
         class:text-emerald-600={sumOk}

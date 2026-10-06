@@ -9,7 +9,7 @@ afterEach(() => {
 
 describe("auth api", () => {
   it("register POSTs to /api/auth/register with JSON body", async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn<typeof fetch>(async () =>
       new Response(
         JSON.stringify({ id: "u1", email: "a@b.c", is_active: true, is_superuser: false, is_verified: false }),
         { status: 201, headers: { "Content-Type": "application/json" } },
@@ -27,7 +27,7 @@ describe("auth api", () => {
   });
 
   it("login POSTs form-encoded body to /api/auth/jwt/login", async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn<typeof fetch>(async () =>
       new Response(JSON.stringify({ access_token: "tok", token_type: "bearer" }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -46,7 +46,7 @@ describe("auth api", () => {
   });
 
   it("getCurrentUser GETs /api/users/me", async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn<typeof fetch>(async () =>
       new Response(
         JSON.stringify({ id: "u1", email: "me@x.y", is_active: true, is_superuser: false, is_verified: false }),
         { status: 200, headers: { "Content-Type": "application/json" } },

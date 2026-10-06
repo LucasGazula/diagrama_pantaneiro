@@ -8,7 +8,9 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite+aiosqlite:///./data/app.db"
     jwt_secret: str
-    jwt_lifetime_seconds: int = 60 * 60 * 24 * 7  # 7 days
+    jwt_lifetime_seconds: int = 60 * 15
+    refresh_lifetime_seconds: int = 60 * 60 * 24 * 30
+    refresh_cookie_secure: bool = False
     brapi_token: str | None = None
     timezone: str = "America/Sao_Paulo"
 

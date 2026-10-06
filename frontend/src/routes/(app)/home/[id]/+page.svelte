@@ -8,12 +8,17 @@
     deletePosition,
   } from "$lib/api/positions";
   import DiagramChecklist from "$lib/components/DiagramChecklist.svelte";
+  import AutocompleteInput from "$lib/components/AutocompleteInput.svelte";
+  import type { CandidateOut } from "$lib/types/api";
   import type { PositionOut } from "$lib/types/api";
 
   let positionId = $derived(page.params.id);
 
   let position = $state<PositionOut | null>(null);
+  let trackingMode = $state<"balance" | "units">("units");
   let amountInput = $state("");
+  let name = $state("");
+  let externalId = $state<string | null>(null);
   let currentPriceInput = $state("");
   let strengthInput = $state("");
   let diagramResponses = $state<string[]>([]);
@@ -30,6 +35,9 @@
         return;
       }
       position = p;
+      name = p.name;
+      externalId = p.externalId ?? null;
+      trackingMode = p.trackingMode ?? (p.currentPrice == null ? "balance" : "units");
       amountInput = String(p.amount);
       currentPriceInput = p.currentPrice != null ? String(p.currentPrice) : "";
       strengthInput = String(p.strength);
@@ -49,9 +57,16 @@
       position?.assetType === "fundos_imobiliarios" ||
       position?.assetType === "reits",
   );
+  let originalMode = $derived(position?.trackingMode ?? (position?.currentPrice == null ? "balance" : "units"));
   let rfHasPrice = $derived(
-    isRF && currentPriceInput !== "" && Number(currentPriceInput) > 0,
+    isRF && trackingMode === "units",
   );
+
+  function selectTitle(c: CandidateOut) {
+    name = c.name;
+    externalId = c.externalId ?? null;
+    if (c.currentPriceBrl != null) currentPriceInput = String(c.currentPriceBrl);
+  }
 
   async function handleSave(e: SubmitEvent) {
     e.preventDefault();
@@ -71,13 +86,19 @@
         currentPrice = Number(currentPriceInput);
       }
       const body: {
-        amount: number;
+        amount?: number;
+        name?: string;
+        externalId?: string | null;
+        trackingMode: "balance" | "units";
         currentPrice: number | null;
         strength?: number;
         diagramResponses?: string[] | null;
       } = {
-        amount: Number(amountInput),
+        ...(trackingMode === (position.trackingMode ?? (position.currentPrice == null ? "balance" : "units"))
+          ? { amount: Number(amountInput) } : {}),
+        trackingMode,
         currentPrice,
+        ...(position.assetType === "rendafixa" ? { name, externalId } : {}),
       };
       if (hasDiagram) {
         body.diagramResponses = diagramResponses;
@@ -109,8 +130,8 @@
   }
 </script>
 
-<section class="mx-auto mt-8 max-w-2xl p-6">
-  <header class="mb-6 flex items-center justify-between">
+<section class="responsive-page mx-auto mt-8 max-w-2xl p-6">
+  <header class="page-header mb-6 flex items-center justify-between">
     <h1 class="text-2xl font-bold">
       {position ? `Editar ${position.name}` : "Carregando…"}
     </h1>
@@ -129,6 +150,28 @@
         </p>
       </div>
 
+      {#if position.assetType === "rendafixa"}
+        <label class="block">
+          <span class="text-sm text-slate-700">Título / nome da posição</span>
+          <AutocompleteInput value={name} assetType={position.assetType} placeholder="Tesouro IPCA+ 2035"
+            oninput={(v) => { name = v; externalId = null; }} onselect={selectTitle} />
+          <span class="text-xs text-slate-500">Selecione título completo para corrigir ano ou variante com juros semestrais.</span>
+        </label>
+      {/if}
+
+      {#if isRF}
+        <label class="block">
+          <span class="text-sm text-slate-700">Acompanhamento</span>
+          <select bind:value={trackingMode} class="mt-1 block w-full rounded border-slate-300 px-3 py-2">
+            <option value="balance">Saldo manual em reais</option>
+            <option value="units">Quantidade de títulos × preço da unidade</option>
+          </select>
+        </label>
+        {#if trackingMode !== originalMode}
+          <p class="text-sm text-slate-600">Salvar converte saldo atual usando preço da unidade. Depois, edite quantidade ou saldo.</p>
+        {/if}
+      {/if}
+
       <label class="block">
         <span class="text-sm text-slate-700">
           {#if isRF}
@@ -141,6 +184,7 @@
           type="number"
           step="any"
           required
+          disabled={trackingMode !== originalMode}
           bind:value={amountInput}
           class="mt-1 block w-full rounded border-slate-300 px-3 py-2"
         />
@@ -150,13 +194,13 @@
         <span class="text-sm text-slate-700">
           Preço atual
           {#if isRF}
-            <span class="text-xs text-slate-500">— deixe em branco para RF privada</span>
+            <span class="text-xs text-slate-500">— opcional no saldo manual; não muda acompanhamento</span>
           {/if}
         </span>
         <input
           type="number"
           step="any"
-          required={!isRF}
+          required={!isRF || trackingMode === "units"}
           bind:value={currentPriceInput}
           class="mt-1 block w-full rounded border-slate-300 px-3 py-2"
         />
@@ -183,7 +227,7 @@
         </label>
       {/if}
 
-      <div class="flex justify-between">
+      <div class="form-actions flex justify-between">
         <div class="flex gap-2">
           <button
             type="submit"

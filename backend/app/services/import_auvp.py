@@ -53,6 +53,7 @@ async def import_auvp_user_doc(
                 asset_type=asset_type,
                 amount=amount,
                 current_price=current_price,
+                tracking_mode="balance" if asset_type in RF_TYPES else "units",
                 strength=int(a["strength"]),
                 diagram_responses=a.get("diagramResponses"),
                 source="auvp_import",

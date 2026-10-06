@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import pytest
 import respx
 from httpx import Response
@@ -52,3 +53,10 @@ async def test_raises_when_no_cache_and_network_fails() -> None:
     respx.get(usd_brl._ENDPOINT).mock(side_effect=Exception("network down"))
     with pytest.raises(AdapterNetworkError):
         await usd_brl.get_usd_brl_rate()
+
+
+@respx.mock
+async def test_concurrent_rates_share_one_request() -> None:
+    route = respx.get(usd_brl._ENDPOINT).respond(200, json={"USDBRL": {"bid": "5.0"}})
+    assert await asyncio.gather(*(usd_brl.get_usd_brl_rate() for _ in range(12))) == [5.0] * 12
+    assert route.call_count == 1

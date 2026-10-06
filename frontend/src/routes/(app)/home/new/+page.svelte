@@ -6,6 +6,8 @@
   import type { CandidateOut } from "$lib/types/api";
 
   let name = $state("");
+  let trackingMode = $state<"balance" | "units">("units");
+  let externalId = $state<string | null>(null);
   let assetType = $state("acoes_nacionais");
   let amountInput = $state("");
   let currentPriceInput = $state("");
@@ -42,15 +44,40 @@
       assetType === "criptomoedas" ||
       assetType === "rendafixa",
   );
-  let rfHasPrice = $derived(
-    isRF && currentPriceInput !== "" && Number(currentPriceInput) > 0,
-  );
+  let rfHasPrice = $derived(isRF && trackingMode === "units");
 
   function handleCandidatePick(c: CandidateOut) {
     name = c.name;
+    externalId = c.externalId ?? null;
     if (c.currentPriceBrl != null) {
+      if (trackingMode === "balance" && amountInput !== "") {
+        amountInput = String(Number(amountInput) / c.currentPriceBrl);
+      }
       currentPriceInput = String(c.currentPriceBrl);
+      trackingMode = "units";
     }
+  }
+
+  function changeClass() {
+    trackingMode = assetType === "rendafixa" || assetType === "rendafixa_internacional" ? "balance" : "units";
+    name = "";
+    externalId = null;
+    currentPriceInput = "";
+    amountInput = "";
+  }
+
+  function changeMode(e: Event) {
+    const next = (e.currentTarget as HTMLSelectElement).value as "balance" | "units";
+    const price = Number(currentPriceInput);
+    if (amountInput !== "" && price > 0 && next !== trackingMode) {
+      amountInput = String(next === "units" ? Number(amountInput) / price : Number(amountInput) * price);
+    } else if (amountInput !== "" && next !== trackingMode) {
+      error = "Informe preço da unidade para converter saldo.";
+      (e.currentTarget as HTMLSelectElement).value = trackingMode;
+      return;
+    }
+    trackingMode = next;
+    error = null;
   }
 
   async function handleSubmit(e: SubmitEvent) {
@@ -59,10 +86,9 @@
     error = null;
     try {
       const amount = Number(amountInput);
-      // For RF, price is optional: if user left it blank, treat as
-      // private/unpriced (amount = BRL). Otherwise priced (amount = units).
+      // Tracking mode defines amount independently of quote availability.
       let currentPrice: number | null;
-      if (isRF) {
+      if (isRF && trackingMode === "balance") {
         currentPrice =
           currentPriceInput !== "" && Number(currentPriceInput) > 0
             ? Number(currentPriceInput)
@@ -75,6 +101,8 @@
         assetType,
         amount,
         currentPrice,
+        trackingMode,
+        externalId,
         // Strength is server-recomputed from diagram_responses for equities;
         // for non-diagram assets (crypto, RF), we send the manual value.
         strength: hasDiagram ? 0 : parseInt(strengthInput, 10),
@@ -89,8 +117,8 @@
   }
 </script>
 
-<section class="mx-auto mt-8 max-w-2xl p-6">
-  <header class="mb-6 flex items-center justify-between">
+<section class="responsive-page mx-auto mt-8 max-w-2xl p-6">
+  <header class="page-header mb-6 flex items-center justify-between">
     <h1 class="text-2xl font-bold">Adicionar posição</h1>
     <a href="/home" class="text-sm text-slate-600 underline">← voltar</a>
   </header>
@@ -116,7 +144,7 @@
           value={name}
           {assetType}
           placeholder={isRF ? "tesouro renda" : (assetType === "acoes_internacionais" || assetType === "reits" ? "AAPL / O" : "PETR")}
-          oninput={(v) => (name = v)}
+          oninput={(v) => { name = v; externalId = null; }}
           onselect={handleCandidatePick}
         />
       {:else}
@@ -134,6 +162,7 @@
       <span class="text-sm text-slate-700">Classe</span>
       <select
         bind:value={assetType}
+        onchange={changeClass}
         class="mt-1 block w-full rounded border-slate-300 px-3 py-2"
       >
         {#each TYPES as t}
@@ -142,13 +171,22 @@
       </select>
     </label>
 
+    {#if isRF}
+      <label class="block">
+        <span class="text-sm text-slate-700">Acompanhamento</span>
+        <select value={trackingMode} onchange={changeMode} class="mt-1 block w-full rounded border-slate-300 px-3 py-2">
+          <option value="balance">Saldo manual em reais</option>
+          <option value="units">Quantidade de títulos × preço da unidade</option>
+        </select>
+      </label>
+    {/if}
+
     <label class="block">
       <span class="text-sm text-slate-700">
         {#if isRF}
           {rfHasPrice ? "Quantidade (unidades)" : "Valor (R$)"}
           <span class="text-xs text-slate-500">
-            — preencha o preço à direita se for precificado por unidade (Tesouro);
-            deixe em branco para RF privada acompanhada em BRL
+            — {rfHasPrice ? "informe quantidade de títulos na corretora" : "informe saldo atualizado em reais"}
           </span>
         {:else}
           Quantidade (ações / moedas)
@@ -167,13 +205,13 @@
       <span class="text-sm text-slate-700">
         Preço atual (R$ por unidade)
         {#if isRF}
-          <span class="text-xs text-slate-500">— opcional para RF privada</span>
+          <span class="text-xs text-slate-500">— opcional no saldo manual; preencher preço não muda acompanhamento</span>
         {/if}
       </span>
       <input
         type="number"
         step="any"
-        required={!isRF}
+        required={!isRF || trackingMode === "units"}
         bind:value={currentPriceInput}
         class="mt-1 block w-full rounded border-slate-300 px-3 py-2"
       />

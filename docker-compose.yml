@@ -5,6 +5,9 @@ services:
     environment:
       - DATABASE_URL=sqlite+aiosqlite:////app/data/app.db
       - JWT_SECRET=${JWT_SECRET}
+      - JWT_LIFETIME_SECONDS=${JWT_LIFETIME_SECONDS:-900}
+      - REFRESH_LIFETIME_SECONDS=${REFRESH_LIFETIME_SECONDS:-2592000}
+      - REFRESH_COOKIE_SECURE=${REFRESH_COOKIE_SECURE:-false}
       - BRAPI_TOKEN=${BRAPI_TOKEN:-}
       - TIMEZONE=America/Sao_Paulo
     volumes:

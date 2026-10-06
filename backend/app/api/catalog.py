@@ -51,7 +51,11 @@ async def search(
 
     return [
         CandidateOut(
-            name=c.name, label=c.label, current_price_brl=c.current_price_brl
+            name=c.name,
+            label=c.label,
+            current_price_brl=c.current_price_brl,
+            external_id=c.external_id,
+            quote_as_of=c.quote_as_of,
         )
         for c in candidates
     ]

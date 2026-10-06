@@ -41,9 +41,7 @@ async def _get_portfolio_event(
         )
     ).scalar_one_or_none()
     if event is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="aporte not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="aporte not found")
     return event
 
 
@@ -68,12 +66,16 @@ async def list_aportes(
     session: AsyncSession = Depends(get_async_session),
 ) -> list[AporteEventOut]:
     events = (
-        await session.execute(
-            select(AporteEvent)
-            .where(AporteEvent.portfolio_id == portfolio.id)
-            .order_by(AporteEvent.created_at.desc())
+        (
+            await session.execute(
+                select(AporteEvent)
+                .where(AporteEvent.portfolio_id == portfolio.id)
+                .order_by(AporteEvent.created_at.desc())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [AporteEventOut.model_validate(e) for e in events]
 
 
@@ -110,12 +112,13 @@ async def apply(
         )
     ).scalar_one_or_none()
     if alloc is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="allocation not found"
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="allocation not found")
+    try:
+        updated = await apply_allocation(
+            session, alloc.id, body.applied_value_brl, body.applied_quantity
         )
-    updated = await apply_allocation(
-        session, alloc.id, body.applied_value_brl, body.applied_quantity
-    )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     await session.commit()
     await session.refresh(updated)
     return AporteAllocationOut.model_validate(updated)

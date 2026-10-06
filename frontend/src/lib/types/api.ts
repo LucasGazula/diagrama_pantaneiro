@@ -25,6 +25,11 @@ export interface PositionOut {
   strength: number;
   diagramResponses: string[] | null;
   source: string;
+  updatedAt?: string | null;
+  trackingMode?: "balance" | "units";
+  externalId?: string | null;
+  quoteAsOf?: string | null;
+  quoteStale?: boolean;
 }
 
 export interface TargetOut {
@@ -39,6 +44,7 @@ export interface AporteAllocationOut {
   positionNameSnapshot: string;
   assetTypeSnapshot: string;
   priceAtAporteBrl: number | null;
+  trackingModeSnapshot?: "balance" | "units" | null;
   suggestedValueBrl: number;
   suggestedQuantity: number;
   applied: boolean;
@@ -56,6 +62,8 @@ export interface AporteEventOut {
 }
 
 export interface PositionCreate {
+  trackingMode?: "balance" | "units";
+  externalId?: string | null;
   name: string;
   assetType: string;
   amount: number;
@@ -65,6 +73,9 @@ export interface PositionCreate {
 }
 
 export interface PositionUpdate {
+  name?: string;
+  externalId?: string | null;
+  trackingMode?: "balance" | "units";
   amount?: number;
   currentPrice?: number | null;
   strength?: number;
@@ -102,9 +113,12 @@ export interface RefreshSummaryOut {
   refreshed: number;
   skippedManual: number;
   failed: PriceFailureOut[];
+  stale?: PriceFailureOut[];
 }
 
 export interface CandidateOut {
+  externalId?: string | null;
+  quoteAsOf?: string | null;
   name: string;
   label: string | null;
   currentPriceBrl: number | null;
@@ -144,4 +158,46 @@ export interface PortfolioCreate {
 
 export interface PortfolioRename {
   name: string;
+}
+
+export interface DividendItemOut {
+  id: string;
+  ticker: string;
+  assetType: string;
+  paymentDate: string;
+  exDate: string | null;
+  amountShares: number;
+  rateNative: number;
+  currency: string;
+  rateBrl: number;
+  rateNetBrl: number;
+  totalNative: number;
+  totalBrl: number;
+  totalNetBrl: number;
+  taxRate: number;
+  taxBrl: number;
+  isJcp: boolean;
+  dividendType: string;
+  status: "pago" | "previsto";
+}
+
+export interface DividendCalendarOut {
+  year: number;
+  month: number;
+  dateMode: "payment" | "ex";
+  usdRate: number;
+  totalReceivedBrl: number;
+  totalReceivedNetBrl: number;
+  totalProjectedBrl: number;
+  totalProjectedNetBrl: number;
+  totalMonthBrl: number;
+  totalMonthNetBrl: number;
+  totalTaxBrl: number;
+  items: DividendItemOut[];
+}
+
+export interface DividendSyncOut {
+  syncedTickers: number;
+  failedTickers: string[];
+  totalDividendsStored: number;
 }

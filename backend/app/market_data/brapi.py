@@ -16,6 +16,7 @@ from app.market_data.base import (
     Candidate,
     PriceQuote,
 )
+from app.market_data.http_client import market_client
 
 _BASE_URL = "https://brapi.dev/api/quote"
 _AVAILABLE_URL = "https://brapi.dev/api/available"
@@ -29,8 +30,8 @@ class BrapiAdapter:
         if not q:
             return []
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                r = await client.get(_AVAILABLE_URL, params={"search": q})
+            async with market_client() as client:
+                r = await client.get(_AVAILABLE_URL, params={"search": q}, timeout=5.0)
                 r.raise_for_status()
                 data = r.json()
         except Exception:
@@ -45,16 +46,14 @@ class BrapiAdapter:
         token = os.getenv("BRAPI_TOKEN")
         params = {"token": token} if token else {}
         try:
-            async with httpx.AsyncClient(timeout=8.0) as client:
+            async with market_client() as client:
                 r = await client.get(f"{_BASE_URL}/{ticker}", params=params)
                 r.raise_for_status()
                 data = r.json()
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 raise AdapterNotFoundError(f"Brapi: {ticker} not found") from e
-            raise AdapterNetworkError(
-                f"Brapi HTTP {e.response.status_code} for {ticker}"
-            ) from e
+            raise AdapterNetworkError(f"Brapi HTTP {e.response.status_code} for {ticker}") from e
         except Exception as e:
             raise AdapterNetworkError(f"Brapi network error for {ticker}: {e}") from e
 

@@ -15,6 +15,7 @@ export async function login(email: string, password: string): Promise<JwtLoginRe
   const body = new URLSearchParams({ username: email, password }).toString();
   const response = await fetch(`${BASE_URL}/api/auth/jwt/login`, {
     method: "POST",
+    credentials: "include",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body,
   });

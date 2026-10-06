@@ -210,6 +210,8 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
     padding: 10px 14px;
     border: 1px solid var(--hairline);
     background: var(--surface);
@@ -361,5 +363,21 @@
     display: flex;
     align-items: center;
     gap: 10px;
+  }
+  @media (max-width: 640px) {
+    .wrap { padding: 16px 12px 48px; }
+    .brand-logo { height: 36px; }
+    .brand-name { font-size: 11px; }
+    .panel { padding: 20px 12px; }
+    .panel-head { flex-wrap: wrap; gap: 8px; }
+    .row { flex-wrap: wrap; gap: 8px; }
+    .row-name { min-width: 0; flex-basis: calc(100% - 28px); overflow-wrap: anywhere; }
+    .row-date { margin-left: auto; }
+    .row .btn, .new-form .btn { min-height: 44px; }
+    .input-inline { min-width: 0; max-width: 100%; }
+    .new-form { flex-wrap: wrap; }
+    .new-form .grow { flex-basis: calc(100% - 28px); }
+    .new-form .btn { width: 100%; }
+    .divider { overflow: hidden; white-space: nowrap; }
   }
 </style>

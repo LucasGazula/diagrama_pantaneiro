@@ -23,6 +23,10 @@ function createAuthStore() {
       localStorage.setItem("auth_token", token);
       set({ token, user });
     },
+    setToken(token: string) {
+      localStorage.setItem("auth_token", token);
+      update((s) => ({ ...s, token }));
+    },
     setUser(user: UserRead) {
       update((s) => ({ ...s, user }));
     },

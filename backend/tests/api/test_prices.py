@@ -66,17 +66,13 @@ async def test_refresh_reports_adapter_failure(client: AsyncClient) -> None:
         r = await client.post("/api/prices/refresh", headers=headers)
     assert r.status_code == 200
     body = r.json()
-    assert body["failed"] == [
-        {"name": "TAEE4", "reason": "Brapi: TAEE4 not found"}
-    ]
+    assert body["failed"] == [{"name": "TAEE4", "reason": "Brapi: TAEE4 not found"}]
 
 
-async def test_refresh_auto_migrates_rf_amount_to_units_on_first_price(
+async def test_refresh_preserves_manual_balance_without_automatic_conversion(
     session_maker,
 ) -> None:
-    """Legacy Tesouro position: amount stored as BRL, current_price None.
-    After a successful Tesouro adapter refresh, amount should be units
-    (BRL / price) and current_price should hold the new PU."""
+    """Quote refresh must never redefine a manual BRL balance as units."""
     import uuid
 
     from unittest.mock import AsyncMock, patch
@@ -112,26 +108,23 @@ async def test_refresh_auto_migrates_rf_amount_to_units_on_first_price(
     with patch(
         "app.market_data.tesouro.TesouroAdapter.fetch_price",
         new=AsyncMock(
-            return_value=PriceQuote.now(
-                external_id="TESOURO RENDA + 2064", price_brl=500.0
-            )
+            return_value=PriceQuote.now(external_id="TESOURO RENDA + 2064", price_brl=500.0)
         ),
     ):
         async with session_maker() as session:
             summary = await refresh_portfolio_prices(session, portfolio_id)
 
-    assert summary.refreshed == 1
+    assert summary.refreshed == 0
+    assert summary.skipped_manual == 1
     async with session_maker() as session:
         from sqlalchemy import select
 
         refreshed = (
             await session.execute(select(Position).where(Position.id == p_id))
         ).scalar_one()
-        # 1074 BRL / 500 PU = 2.148 units
-        assert abs(refreshed.amount - 2.148) < 1e-4
-        assert refreshed.current_price == 500.0
-        # Value preserved: 2.148 units * 500 PU = 1074 BRL
-        assert abs(refreshed.amount * refreshed.current_price - 1074.0) < 1e-3
+        assert refreshed.amount == 1074.0
+        assert refreshed.current_price is None
+        assert refreshed.tracking_mode == "balance"
 
 
 async def test_refresh_does_not_remigrate_on_subsequent_calls(
@@ -173,9 +166,7 @@ async def test_refresh_does_not_remigrate_on_subsequent_calls(
     with patch(
         "app.market_data.tesouro.TesouroAdapter.fetch_price",
         new=AsyncMock(
-            return_value=PriceQuote.now(
-                external_id="TESOURO RENDA + 2064", price_brl=520.0
-            )
+            return_value=PriceQuote.now(external_id="TESOURO RENDA + 2064", price_brl=520.0)
         ),
     ):
         async with session_maker() as session:
@@ -191,3 +182,38 @@ async def test_refresh_does_not_remigrate_on_subsequent_calls(
         assert abs(refreshed.amount - 2.148) < 1e-6
         # price picked up the new value
         assert refreshed.current_price == 520.0
+
+
+async def test_refresh_scope_all_refreshes_across_portfolios(
+    client: AsyncClient,
+) -> None:
+    token = await _register_login_seed(client, "scope_all@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    from app.services import refresh_prices as svc
+
+    async def fake_refresh(session, portfolio_id=None, *args, user_id=None, **kwargs):
+        assert user_id is not None
+        return svc.RefreshResult(refreshed=20, skipped_manual=2, failed=[])
+
+    with patch(
+        "app.api.prices.refresh_portfolio_prices",
+        new=AsyncMock(side_effect=fake_refresh),
+    ):
+        r = await client.post("/api/prices/refresh?scope=all", headers=headers)
+    assert r.status_code == 200
+    assert r.json()["refreshed"] == 20
+
+
+async def test_background_refresh_requests_only_stale_prices(client: AsyncClient) -> None:
+    token = await _register_login_seed(client, "background_prices@example.com")
+    from app.services.refresh_prices import RefreshResult
+
+    refresh = AsyncMock(return_value=RefreshResult())
+    with patch("app.api.prices.refresh_portfolio_prices", refresh):
+        response = await client.post(
+            "/api/prices/refresh?scope=all&force=false",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert response.status_code == 200
+    assert refresh.await_args.kwargs["only_stale"] is True

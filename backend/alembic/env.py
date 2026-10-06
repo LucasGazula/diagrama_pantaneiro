@@ -9,6 +9,7 @@ from alembic import context
 
 from app.core.config import get_settings
 from app.core.db import Base
+from app.models.auth_session import AuthSession  # noqa: F401
 from app.models.user import User  # noqa: F401  (register model metadata)
 from app.models.position import Position  # noqa: F401
 from app.models.investment_target import InvestmentTarget  # noqa: F401
@@ -16,6 +17,7 @@ from app.models.diagram_question import DiagramQuestion  # noqa: F401
 from app.models.aporte_event import AporteEvent  # noqa: F401
 from app.models.aporte_allocation import AporteAllocation  # noqa: F401
 from app.models.target_preset import TargetPreset  # noqa: F401
+from app.models.dividend import Dividend  # noqa: F401
 
 config = context.config
 

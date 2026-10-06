@@ -12,6 +12,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.db import Base
 # Import models so their tables are registered on Base.metadata before create_all.
 from app.models import user as _user  # noqa: F401
+from app.models import auth_session as _auth_session  # noqa: F401
 from app.models import aporte_allocation as _aporte_allocation  # noqa: F401
 from app.models import aporte_event as _aporte_event  # noqa: F401
 from app.models import diagram_question as _diagram_question  # noqa: F401

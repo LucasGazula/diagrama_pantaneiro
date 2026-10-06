@@ -26,22 +26,24 @@ async def load_portfolio(
     session: AsyncSession, user_id: uuid.UUID, portfolio_id: uuid.UUID
 ) -> Portfolio:
     pos_rows = (
-        await session.execute(
-            select(Position).where(Position.portfolio_id == portfolio_id)
-        )
-    ).scalars().all()
+        (await session.execute(select(Position).where(Position.portfolio_id == portfolio_id)))
+        .scalars()
+        .all()
+    )
     tgt_rows = (
-        await session.execute(
-            select(InvestmentTarget).where(
-                InvestmentTarget.portfolio_id == portfolio_id
+        (
+            await session.execute(
+                select(InvestmentTarget).where(InvestmentTarget.portfolio_id == portfolio_id)
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     q_rows = (
-        await session.execute(
-            select(DiagramQuestion).where(DiagramQuestion.user_id == user_id)
-        )
-    ).scalars().all()
+        (await session.execute(select(DiagramQuestion).where(DiagramQuestion.user_id == user_id)))
+        .scalars()
+        .all()
+    )
 
     assets = [
         Asset(
@@ -51,6 +53,8 @@ async def load_portfolio(
             amount=p.amount,
             strength=p.strength,
             current_price=p.current_price,
+            tracking_mode=p.tracking_mode,
+            quote_stale=p.quote_stale,
             diagram_responses=p.diagram_responses,
         )
         for p in pos_rows

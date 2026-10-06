@@ -26,6 +26,10 @@ RUN mkdir -p /app/data
 # Activate uv-managed venv in PATH
 ENV PATH="/app/.venv/bin:$PATH"
 
+# This API does not perform parallel matrix workloads. Bound native thread
+# pools and glibc arenas so market-data workers do not retain excess memory.
+ENV OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MALLOC_ARENA_MAX=2
+
 EXPOSE 8000
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

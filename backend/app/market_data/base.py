@@ -7,9 +7,14 @@ interchangeably; currency conversion and per-source quirks live here.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Protocol
+
+# Shared by price and dividend syncs, including overlapping HTTP/background jobs.
+FETCH_CONCURRENCY = 2
+fetch_slots = asyncio.Semaphore(FETCH_CONCURRENCY)
 
 
 @dataclass(frozen=True)
@@ -17,6 +22,8 @@ class PriceQuote:
     external_id: str
     price_brl: float
     fetched_at: datetime
+    as_of: datetime | None = None
+    stale: bool = False
 
     @staticmethod
     def now(external_id: str, price_brl: float) -> "PriceQuote":
@@ -51,6 +58,8 @@ class Candidate:
     name: str
     label: str | None = None
     current_price_brl: float | None = None
+    external_id: str | None = None
+    quote_as_of: datetime | None = None
 
 
 class PriceProvider(Protocol):

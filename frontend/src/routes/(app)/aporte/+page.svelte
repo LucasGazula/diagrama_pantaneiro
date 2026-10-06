@@ -51,7 +51,7 @@
     e.preventDefault();
     const value = Number(amountInput);
     if (!Number.isFinite(value) || value <= 0) {
-      error = "Enter a positive number";
+      error = "Informe valor positivo para aporte";
       return;
     }
     error = null;
@@ -123,6 +123,7 @@
     currentValueBrl: number | null;
     priceAtAporteBrl: number | null;
     suggestedQuantity: number;
+    trackingMode: "balance" | "units";
     suggestedValueBrl: number;
     totalAfterPct: number | null;
     applied: boolean;
@@ -135,11 +136,11 @@
       ? event.allocations
           .map((a) => {
             const pos = positions.find((p) => p.id === a.positionId);
-            const newTotal = portfolioTotal + (event?.aporteValueBrl ?? 0);
+            const newTotal = portfolioTotal + Math.max(0, (event?.aporteValueBrl ?? 0) - totalApplied);
             const currentValue = pos?.currentValueBrl ?? null;
             const totalAfterPct =
               pos && newTotal > 0
-                ? ((pos.currentValueBrl + a.suggestedValueBrl) / newTotal) * 100
+                ? ((pos.currentValueBrl + (a.applied || a.excluded ? 0 : a.suggestedValueBrl)) / newTotal) * 100
                 : null;
             return {
               id: a.id,
@@ -150,6 +151,7 @@
               currentValueBrl: currentValue,
               priceAtAporteBrl: a.priceAtAporteBrl,
               suggestedQuantity: a.suggestedQuantity,
+              trackingMode: a.trackingModeSnapshot ?? (a.priceAtAporteBrl == null ? "balance" : "units"),
               suggestedValueBrl: a.suggestedValueBrl,
               totalAfterPct,
               applied: a.applied,
@@ -203,8 +205,8 @@
   const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 </script>
 
-<section class="mx-auto mt-8 max-w-5xl p-6">
-  <header class="mb-6 flex items-center justify-between">
+<section class="responsive-page mx-auto mt-8 max-w-5xl p-6">
+  <header class="page-header mb-6 flex items-center justify-between">
     <h1 class="text-2xl font-bold">Novo aporte</h1>
     <a
       href="/home"
@@ -214,8 +216,8 @@
     </a>
   </header>
 
-  <form onsubmit={handleCalcular} class="mb-6 flex items-end gap-3">
-    <label class="max-w-xs flex-1">
+  <form onsubmit={handleCalcular} class="mb-6 flex flex-col items-stretch gap-3 sm:flex-row sm:items-end">
+    <label class="min-w-0 flex-1 sm:max-w-xs">
       <span class="text-sm text-slate-700">Valor do aporte (R$)</span>
       <input
         type="number"
@@ -228,7 +230,7 @@
     </label>
     <button
       type="submit"
-      disabled={calculating}
+      disabled={calculating || applyingId !== null || excludingId !== null}
       class="rounded bg-slate-900 px-4 py-2 font-medium text-white disabled:opacity-50"
     >
       {calculating ? "Calculando…" : "Calcular"}
@@ -241,7 +243,7 @@
 
   {#if event}
     <!-- Summary line -->
-    <div class="mb-4 flex gap-6 text-sm text-slate-600">
+    <div class="mb-4 flex flex-wrap gap-6 text-sm text-slate-600">
       <div>
         <span class="text-xs uppercase tracking-wide text-slate-500">Aporte</span>
         <p class="text-lg font-bold text-slate-900">{fmtBRL(event.aporteValueBrl)}</p>
@@ -259,7 +261,7 @@
       {#if event.aporteValueBrl - totalSuggested > 0.01}
         {@const freed = event.aporteValueBrl - totalSuggested}
         <div>
-          <span class="text-xs uppercase tracking-wide text-slate-500">Liberado</span>
+          <span class="text-xs uppercase tracking-wide text-slate-500">Saldo disponível</span>
           <p class="text-lg font-bold text-amber-600">{fmtBRL(freed)}</p>
         </div>
       {/if}
@@ -270,7 +272,7 @@
       <h2 class="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
         Distribuição do aporte
       </h2>
-      <div class="flex flex-wrap items-center gap-6">
+      <div class="flex flex-col items-start gap-6 sm:flex-row sm:flex-wrap sm:items-center">
         <div class="relative h-48 w-48 shrink-0">
           <svg viewBox="0 0 100 100" class="h-full w-full">
             {#each donutSegments as s (s.assetType)}
@@ -323,7 +325,8 @@
     </div>
 
     <!-- Suggestions table -->
-    <div class="rounded border border-slate-200 bg-white">
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex (Scrollable region needs keyboard focus.) -->
+    <div class="table-scroll rounded border border-slate-200 bg-white" role="region" aria-label="Sugestões de aporte, role para ver todas as colunas" tabindex="0">
       <table class="w-full text-sm">
         <thead class="border-b border-slate-200 text-left text-xs uppercase text-slate-500">
           <tr>
@@ -373,7 +376,7 @@
                 {fmtBRL(r.suggestedValueBrl)}
               </td>
               <td class="px-3 py-2 text-right tabular-nums">
-                {fmtQty(r.suggestedQuantity, 4)}
+                {r.trackingMode === "balance" ? "—" : fmtQty(r.suggestedQuantity, r.assetType === "criptomoedas" ? 8 : 4)}
               </td>
               <td class="px-3 py-2 text-right">
                 {#if r.applied}
@@ -383,7 +386,7 @@
                 {:else}
                   <button
                     onclick={() => handleAportar(r.id)}
-                    disabled={applyingId !== null}
+                    disabled={calculating || applyingId !== null || excludingId !== null || r.excluded || r.suggestedValueBrl <= 0}
                     class="rounded bg-slate-900 px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
                   >
                     {applyingId === r.id ? "Aportando…" : "$ Aportar"}
@@ -396,8 +399,9 @@
                 {:else}
                   <button
                     onclick={() => handleExclude(r.id)}
-                    disabled={excludingId !== null}
-                    title="Excluir e redistribuir"
+                    disabled={calculating || applyingId !== null || excludingId !== null}
+                    title="Excluir e recalcular respeitando metas"
+                      aria-label={`Excluir ${r.name} e recalcular aporte`}
                     class="rounded px-2 py-1 text-xs text-red-500 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
                   >
                     ✕

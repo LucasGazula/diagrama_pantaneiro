@@ -28,11 +28,9 @@ def _mock_fast_info(price: float | None, currency: str) -> MagicMock:
 
 @respx.mock
 async def test_fetches_usd_and_converts_to_brl() -> None:
-    respx.get(usd_brl._ENDPOINT).mock(
-        return_value=Response(200, json={"USDBRL": {"bid": "5.0"}})
-    )
+    respx.get(usd_brl._ENDPOINT).mock(return_value=Response(200, json={"USDBRL": {"bid": "5.0"}}))
 
-    with patch("app.market_data.yfinance_adapter.yf.Ticker") as MockTicker:
+    with patch("yfinance.Ticker") as MockTicker:
         ticker_obj = MagicMock()
         ticker_obj.fast_info = _mock_fast_info(400.0, "USD")
         MockTicker.return_value = ticker_obj
@@ -44,7 +42,7 @@ async def test_fetches_usd_and_converts_to_brl() -> None:
 
 async def test_brl_ticker_passes_through_without_conversion() -> None:
     """B3 tickers (VALE3.SA) return BRL natively — no USD multiplication."""
-    with patch("app.market_data.yfinance_adapter.yf.Ticker") as MockTicker:
+    with patch("yfinance.Ticker") as MockTicker:
         ticker_obj = MagicMock()
         ticker_obj.fast_info = _mock_fast_info(88.79, "BRL")
         MockTicker.return_value = ticker_obj
@@ -55,10 +53,8 @@ async def test_brl_ticker_passes_through_without_conversion() -> None:
 
 @respx.mock
 async def test_missing_price_raises_not_found() -> None:
-    respx.get(usd_brl._ENDPOINT).mock(
-        return_value=Response(200, json={"USDBRL": {"bid": "5.0"}})
-    )
-    with patch("app.market_data.yfinance_adapter.yf.Ticker") as MockTicker:
+    respx.get(usd_brl._ENDPOINT).mock(return_value=Response(200, json={"USDBRL": {"bid": "5.0"}}))
+    with patch("yfinance.Ticker") as MockTicker:
         ticker_obj = MagicMock()
         ticker_obj.fast_info = _mock_fast_info(None, "USD")
         MockTicker.return_value = ticker_obj

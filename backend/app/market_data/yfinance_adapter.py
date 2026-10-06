@@ -12,9 +12,6 @@ from __future__ import annotations
 
 import asyncio
 
-import httpx
-import yfinance as yf
-
 from app.market_data.base import (
     AdapterError,
     AdapterNetworkError,
@@ -23,6 +20,7 @@ from app.market_data.base import (
     PriceQuote,
 )
 from app.market_data.usd_brl import get_usd_brl_rate
+from app.market_data.http_client import market_client
 
 _SEARCH_URL = "https://query2.finance.yahoo.com/v1/finance/search"
 
@@ -32,6 +30,8 @@ def _fetch_price_and_currency(ticker: str) -> tuple[float, str]:
 
     Returns (price_in_native_currency, currency_code).
     """
+    import yfinance as yf
+
     info = yf.Ticker(ticker)
     try:
         price = info.fast_info["last_price"]
@@ -50,11 +50,12 @@ class YFinanceAdapter:
             return []
         headers = {"User-Agent": "Mozilla/5.0"}
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with market_client() as client:
                 r = await client.get(
                     _SEARCH_URL,
                     params={"q": q, "quotesCount": 20, "newsCount": 0},
                     headers=headers,
+                    timeout=5.0,
                 )
                 r.raise_for_status()
                 data = r.json()
@@ -86,9 +87,7 @@ class YFinanceAdapter:
     async def fetch_price(self, external_id: str) -> PriceQuote:
         ticker = external_id.upper().strip()
         try:
-            price, currency = await asyncio.to_thread(
-                _fetch_price_and_currency, ticker
-            )
+            price, currency = await asyncio.to_thread(_fetch_price_and_currency, ticker)
         except AdapterNotFoundError:
             raise
         except Exception as e:
@@ -100,9 +99,6 @@ class YFinanceAdapter:
             rate = await get_usd_brl_rate()
             price_brl = price * rate
         else:
-            raise AdapterError(
-                f"yfinance: unsupported currency {currency} for {ticker}"
-            )
+            raise AdapterError(f"yfinance: unsupported currency {currency} for {ticker}")
 
         return PriceQuote.now(external_id=ticker, price_brl=price_brl)
-
